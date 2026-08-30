@@ -1,3 +1,8 @@
+---
+title: Experimento E01
+nav_order: 2
+---
+
 # E01 — Validar el patrón LMAX (motor en memoria con un único escritor) para el emparejamiento
 
 **Reto 1: Desempeño · ARTI4109 · Pestaña Experiments de Helix**

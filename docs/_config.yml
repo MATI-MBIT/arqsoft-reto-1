@@ -1,0 +1,32 @@
+# Configuración de Jekyll para GitHub Pages (fuente: rama main, carpeta /docs)
+title: "arqsoft-reto-1 · Motor de Emparejamiento"
+description: "Documentación del PoC del experimento E01 — Reto 1, ARTI4109 (Universidad de los Andes)"
+url: "https://mati-mbit.github.io"
+baseurl: "/arqsoft-reto-1"
+
+# Tema de documentación con navegación lateral y búsqueda
+remote_theme: just-the-docs/just-the-docs
+plugins:
+  - jekyll-remote-theme
+
+# Render nativo de los diagramas ```mermaid``` (docs/implementacion.md)
+mermaid:
+  version: "10.9.0"
+
+# Enlaces auxiliares en la cabecera
+aux_links:
+  "Repositorio en GitHub":
+    - "https://github.com/MATI-MBIT/arqsoft-reto-1"
+aux_links_new_tab: true
+
+# Búsqueda integrada
+search_enabled: true
+
+# Pie de página
+footer_content: "Reto 1 · ARTI4109 Arquitectura de Software · Universidad de los Andes · 2026-2"
+
+# No publicar archivos auxiliares
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor/

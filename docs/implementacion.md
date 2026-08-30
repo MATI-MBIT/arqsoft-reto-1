@@ -1,3 +1,8 @@
+---
+title: Implementación
+nav_order: 3
+---
+
 # Implementación del PoC — Motor de Emparejamiento (E01)
 
 Este documento describe **cómo está implementado** el PoC: componentes, flujo de una orden, mapeo de cada táctica arquitectónica a código concreto, configuración, metodología de medición y limitaciones. La ficha del experimento (hipótesis, fases y criterios) está en [`experimento-e01.md`](experimento-e01.md); este documento explica el artefacto que lo ejecuta.

@@ -1,0 +1,6 @@
+# Solo para previsualizar la documentación en local (make docs-serve).
+# GitHub Pages no usa este Gemfile: construye con su pipeline propio.
+source "https://rubygems.org"
+
+gem "github-pages", group: :jekyll_plugins
+gem "webrick" # requerido por Ruby 3+

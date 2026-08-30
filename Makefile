@@ -92,3 +92,7 @@ run-router: ## Corre el router local sin Docker (PORT=8080, SHARDS=localhost:909
 help: ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
+
+.PHONY: docs-serve
+docs-serve: ## Previsualiza la documentación Jekyll en http://localhost:4000/arqsoft-reto-1/ (requiere Ruby + bundler)
+	cd docs && bundle install && bundle exec jekyll serve

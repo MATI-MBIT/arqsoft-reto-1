@@ -7,6 +7,8 @@ Monorepo del **PoC del experimento E01** (Reto 1, ARTI4109): validar el patrón 
 
 ## Documentación
 
+📖 **Sitio de documentación (GitHub Pages):** <https://mati-mbit.github.io/arqsoft-reto-1/> — se publica automáticamente desde `docs/` con Jekyll (tema *just-the-docs*, con búsqueda y diagramas Mermaid). Para previsualizar en local: `make docs-serve`.
+
 | Documento | Contenido |
 |---|---|
 | [`docs/experimento-e01.md`](docs/experimento-e01.md) | Ficha del experimento (espejo de Helix): hipótesis H1/H2/H2b, escenarios vinculados, fases, métricas y criterios |

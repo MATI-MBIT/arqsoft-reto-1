@@ -12,6 +12,13 @@ Documentación del **Reto 1** (ARTI4109 · Arquitectura de Software): validar el
 | ASR-02 | Latencia (Critical) | Emparejamiento p95 ≤ 200 ms a 1.000 emp/min (Ambiente A) |
 | ASR-03 | Escalabilidad transitoria (Critical) | 1.000 → 5.000 emp/min sostenido hasta 30 min con p95 ≤ 200 ms (Ambiente B) |
 
+## Grupo 1 - Arquitectura de Software
+
+- Carlos Chaparro
+- Nestor Javier Rodriguez
+- Rafael Alexander Reyes
+- Nicolás E Rozo Espinosa
+
 ## Contenido
 
 - **[Experimento E01](experimento-e01.html)** — la ficha del experimento (espejo de Helix): hipótesis H1/H2/H2b, escenarios de calidad vinculados, fases F1–F4, métricas y criterios de éxito.

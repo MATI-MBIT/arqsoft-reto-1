@@ -63,8 +63,8 @@ services:
       args: { SERVICE: ingest-router }
     environment:
       PORT: "8080"
-      # Para N=4 (perfil n4) agregar: ,matching-shard-2:9090,matching-shard-3:9090
-      SHARDS: "matching-shard-0:9090,matching-shard-1:9090"
+      # N=2 por defecto; `make up-n4` la sobreescribe con los 4 shards.
+      SHARDS: "${SHARDS:-matching-shard-0:9090,matching-shard-1:9090}"
       QUEUE_CAPACITY: "10000"
     ports:
       - "8080:8080"

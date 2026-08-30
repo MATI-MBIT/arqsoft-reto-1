@@ -20,7 +20,9 @@ const SMOKE = __ENV.SMOKE === '1';
 
 // 1.000 emp/min ≈ 17 req/s (Ambiente A) · 5.000 emp/min ≈ 84 req/s (Ambiente B)
 const RATE_A = 17;
-const RATE_B = 84;
+// PEAK permite explorar más allá del pico contractual (p. ej. buscar el punto
+// de quiebre real de un shard en F4): k6 run -e PHASE=f4 -e PEAK=500 poc.js
+const RATE_B = Number(__ENV.PEAK || 84);
 
 // Símbolos: repartidos (≥3 activos) o concentrados (partición caliente, F4).
 const SYMBOLS = PHASE === 'f4'

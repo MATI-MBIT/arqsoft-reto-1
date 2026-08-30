@@ -96,3 +96,35 @@ help: ## Muestra esta ayuda
 .PHONY: docs-serve
 docs-serve: ## Previsualiza la documentación Jekyll en http://localhost:4000/arqsoft-reto-1/ (requiere Ruby + bundler)
 	cd docs && bundle install && bundle exec jekyll serve
+
+# ---------- Exploración F4 y comparación de sharding --------------------------
+
+PEAK ?= 500
+
+.PHONY: f4-peak
+f4-peak: ## F4 exploratoria corta (~5 min) a tasa PEAK/s en un solo símbolo (make f4-peak PEAK=500)
+	cd $(K6_DIR) && k6 run -e PHASE=f4 -e SMOKE=1 -e PEAK=$(PEAK) poc.js
+
+.PHONY: f4-explore
+f4-explore: ## Busca el punto de quiebre de un shard: corridas de ~5 min a 250, 500 y 1000/s
+	-$(MAKE) f4-peak PEAK=250
+	-$(MAKE) f4-peak PEAK=500
+	-$(MAKE) f4-peak PEAK=1000
+	@echo ""
+	@echo "Leer en cada corrida: p95, rechazos (backpressure) y si k6 sostuvo la tasa objetivo."
+	@echo "El punto de quiebre es la primera tasa donde alguno de los tres se degrada."
+
+.PHONY: compare-sharding
+compare-sharding: ## Compara N=2 vs N=4 con carga repartida a tasa PEAK/s (make compare-sharding PEAK=400)
+	@echo "===== Topología N=2 @ $(PEAK)/s ====="
+	$(COMPOSE) --profile n4 down --remove-orphans
+	$(COMPOSE) up --build -d
+	@sleep 20
+	-cd $(K6_DIR) && k6 run -e PHASE=f2 -e SMOKE=1 -e PEAK=$(PEAK) poc.js
+	@echo "===== Topología N=4 @ $(PEAK)/s ====="
+	$(COMPOSE) down --remove-orphans
+	SHARDS=$(SHARDS_N4) $(COMPOSE) --profile n4 up --build -d
+	@sleep 20
+	-cd $(K6_DIR) && k6 run -e PHASE=f2 -e SMOKE=1 -e PEAK=$(PEAK) poc.js
+	@echo ""
+	@echo "Evidencia de H2: si N=4 sostiene el p95/tasa donde N=2 se degrada, el throughput escala agregando shards."

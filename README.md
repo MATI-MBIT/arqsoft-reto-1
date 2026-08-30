@@ -49,7 +49,9 @@ make smoke     # humo de ~1 min para verificar el montaje
 | `make smoke` / `make smoke-f2` | Verificaciones cortas del montaje |
 | `make f1` | F1 — baseline ASR-02 (12 min, p95 < 200 ms) |
 | `make f2` | F2+F3 — rampa, pico de 30 min y retorno a régimen (ASR-03) |
-| `make f4` | F4 — partición caliente (exploratoria, sin criterio binario) |
+| `make f4` | F4 — partición caliente al pico contractual (exploratoria, sin criterio binario) |
+| `make f4-explore` / `make f4-peak PEAK=n` | Busca el punto de quiebre de un shard (corridas cortas a 250/500/1000/s o tasa libre) |
+| `make compare-sharding PEAK=n` | Corre la misma carga repartida sobre N=2 y luego N=4: evidencia de escalamiento por sharding |
 | `make experimento` | Secuencia oficial completa: `up` → F1 → F2+F3 → F4 |
 | `make logs` / `make ps` / `make down` | Operación de la topología |
 | `make run-shard` / `make run-router` | Correr un servicio local sin Docker |

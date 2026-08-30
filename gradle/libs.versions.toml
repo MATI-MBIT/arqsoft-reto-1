@@ -1,0 +1,23 @@
+# Catálogo de versiones del monorepo (Reto 1 — PoC E01)
+[versions]
+disruptor = "4.0.0"
+grpc = "1.68.1"
+protobuf = "4.28.3"
+hdrhistogram = "2.2.2"
+slf4j = "2.0.16"
+protobufPlugin = "0.9.4"
+annotationsApi = "6.0.53"
+
+[libraries]
+disruptor = { module = "com.lmax:disruptor", version.ref = "disruptor" }
+grpc-netty = { module = "io.grpc:grpc-netty-shaded", version.ref = "grpc" }
+grpc-protobuf = { module = "io.grpc:grpc-protobuf", version.ref = "grpc" }
+grpc-stub = { module = "io.grpc:grpc-stub", version.ref = "grpc" }
+protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
+hdrhistogram = { module = "org.hdrhistogram:HdrHistogram", version.ref = "hdrhistogram" }
+slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+tomcat-annotations = { module = "org.apache.tomcat:annotations-api", version.ref = "annotationsApi" }
+
+[plugins]
+protobuf = { id = "com.google.protobuf", version.ref = "protobufPlugin" }

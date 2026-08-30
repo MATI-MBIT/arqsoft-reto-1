@@ -1,0 +1,74 @@
+# Topología mínima del PoC E01 (una sola máquina, sin Kubernetes ni broker):
+#   k6 → ingest-router (sharding hash(símbolo) % N + cola acotada) → N shards LMAX
+#
+# N=2 por defecto. Para N=4: docker compose --profile n4 up --build
+# y agregar matching-shard-2/3 a SHARDS del router (ver README).
+#
+# Nota cpuset: el aislamiento de núcleos (cpuset) solo aplica en hosts Linux.
+# En macOS Docker corre dentro de una VM: para la corrida oficial, ejecutar en
+# Linux o declarar la limitación en el informe (ver E01 en Helix).
+name: arqsoft-reto-1
+
+services:
+  matching-shard-0:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args: { SERVICE: matching-engine }
+    environment:
+      SHARD_ID: "0"
+      PORT: "9090"
+      RING_SIZE: "16384"
+    # cpuset: "2"        # ← descomentar en Linux: un núcleo dedicado por shard
+
+  matching-shard-1:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args: { SERVICE: matching-engine }
+    environment:
+      SHARD_ID: "1"
+      PORT: "9090"
+      RING_SIZE: "16384"
+    # cpuset: "3"
+
+  matching-shard-2:
+    profiles: ["n4"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args: { SERVICE: matching-engine }
+    environment:
+      SHARD_ID: "2"
+      PORT: "9090"
+      RING_SIZE: "16384"
+    # cpuset: "4"
+
+  matching-shard-3:
+    profiles: ["n4"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args: { SERVICE: matching-engine }
+    environment:
+      SHARD_ID: "3"
+      PORT: "9090"
+      RING_SIZE: "16384"
+    # cpuset: "5"
+
+  ingest-router:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args: { SERVICE: ingest-router }
+    environment:
+      PORT: "8080"
+      # Para N=4 (perfil n4) agregar: ,matching-shard-2:9090,matching-shard-3:9090
+      SHARDS: "matching-shard-0:9090,matching-shard-1:9090"
+      QUEUE_CAPACITY: "10000"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - matching-shard-0
+      - matching-shard-1
+    # cpuset: "6,7"

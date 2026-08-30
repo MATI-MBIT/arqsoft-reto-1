@@ -1,0 +1,44 @@
+// Contrato de ingesta del motor de emparejamiento (D-07: gRPC/Protobuf sobre HTTP/2).
+// La latencia que valida ASR-02 se mide de arribo → materialización; la respuesta
+// del RPC lleva la latencia interna del motor para contrastarla con la medida del generador.
+syntax = "proto3";
+
+package matching.v1;
+
+option java_multiple_files = true;
+option java_package = "co.mati.matching.v1";
+
+enum Side {
+  SIDE_UNSPECIFIED = 0;
+  BUY = 1;
+  SELL = 2;
+}
+
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  RESTING = 1;            // quedó en el libro esperando contraparte
+  PARTIALLY_MATCHED = 2;  // se materializó parte de la cantidad; el resto queda en el libro
+  MATCHED = 3;            // materializada por completo
+  REJECTED = 4;           // backpressure: cola/ring llenos (señal de la táctica de amortiguación)
+}
+
+message OrderRequest {
+  string order_id = 1;
+  string symbol = 2;        // clave de sharding: hash(symbol) % N
+  Side side = 3;
+  int64 price_cents = 4;    // precio en centavos: sin aritmética flotante en el camino crítico
+  int64 quantity = 5;
+  int64 client_ts_nanos = 6; // opcional: timestamp del generador para diagnóstico
+}
+
+message OrderResponse {
+  string order_id = 1;
+  Status status = 2;
+  int64 matched_quantity = 3;
+  int64 engine_latency_micros = 4; // arribo al motor → materialización (HdrHistogram interno)
+  int32 shard_id = 5;
+}
+
+service MatchingIngest {
+  rpc SubmitOrder(OrderRequest) returns (OrderResponse);
+}

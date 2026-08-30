@@ -128,3 +128,13 @@ compare-sharding: ## Compara N=2 vs N=4 con carga repartida a tasa PEAK/s (make 
 	-cd $(K6_DIR) && k6 run -e PHASE=f2 -e SMOKE=1 -e PEAK=$(PEAK) poc.js
 	@echo ""
 	@echo "Evidencia de H2: si N=4 sostiene el p95/tasa donde N=2 se degrada, el throughput escala agregando shards."
+
+# ---------- Ciclo E2E de un solo comando --------------------------------------
+
+.PHONY: e2e
+e2e: ## Ciclo E2E oficial completo (~1h40m): up → F1 → F2+F3 → F4 → F4-explore → down, resultados en load/k6/results/
+	./load/run-e2e.sh full
+
+.PHONY: e2e-smoke
+e2e-smoke: ## Mismo ciclo E2E en corto (~25 min): la regresión a correr tras cada cambio de implementación
+	./load/run-e2e.sh smoke

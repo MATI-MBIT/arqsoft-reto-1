@@ -44,6 +44,8 @@ make smoke     # humo de ~1 min para verificar el montaje
 
 | Comando | Qué hace |
 |---|---|
+| **`make e2e`** | **El experimento completo en un comando** (~1h40m): up → F1 → F2+F3 → F4 → F4-explore → down; salidas y JSON por fase en `load/k6/results/<timestamp>/`, sale con error si alguna fase oficial incumple |
+| **`make e2e-smoke`** | El mismo ciclo en corto (~25 min): **la regresión a correr tras cada cambio de implementación** |
 | `make build` / `make test` / `make clean` | Ciclo Gradle |
 | `make up` / `make up-n4` | Topología con 2 o 4 shards |
 | `make smoke` / `make smoke-f2` | Verificaciones cortas del montaje |

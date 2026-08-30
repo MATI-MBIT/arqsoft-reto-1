@@ -1,5 +1,5 @@
 # Configuración de Jekyll para GitHub Pages (fuente: rama main, carpeta /docs)
-title: "arqsoft-reto-1 · Motor de Emparejamiento"
+title: "arqsoft-reto-1"
 description: "Documentación del PoC del experimento E01 — Reto 1, ARTI4109 (Universidad de los Andes)"
 url: "https://mati-mbit.github.io"
 baseurl: "/arqsoft-reto-1"

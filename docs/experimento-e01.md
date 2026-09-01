@@ -63,9 +63,6 @@ Patrón LMAX Architecture (Disruptor): procesador de eventos secuencial con libr
 
 ```mermaid
 flowchart LR
-    O["Orden\n(symbol = ISA)"] --> R{"router\nhash(símbolo) % 2"}
-    R -->|"BANCOLOMBIA, ISA, NUTRESA…"| S0
-    R -->|"ECOPETROL, GRUPOSURA, CEMARGOS…"| S1
     subgraph S0["matching-shard-0 · 1 hilo escritor"]
       B0["Libro BANCOLOMBIA"]
       B1["Libro ISA"]
@@ -76,6 +73,9 @@ flowchart LR
       B4["Libro GRUPOSURA"]
       B5["Libro CEMARGOS"]
     end
+    O["Orden: symbol = ISA"] --> R{"router: hash % 2"}
+    R -- "BANCOLOMBIA · ISA · NUTRESA" --> S0
+    R -- "ECOPETROL · GRUPOSURA · CEMARGOS" --> S1
 ``` Tácticas de latencia: mantener los datos del camino crítico en memoria, reducir overhead evitando bloqueos y contención, mover journaling y notificación a etapas asíncronas. Tácticas de escalabilidad: particionamiento por activo (el throughput total escala agregando shards) y cola acotada con backpressure en la ingesta (se prefiere frenar la entrada antes que prometer una latencia incumplible). Alternativas descartadas: pool de workers con colas bloqueantes (reintroduce la contención), locks de grano fino por nivel de precio (deadlocks y latencia impredecible), PostgreSQL con SELECT FOR UPDATE (se mantiene como línea base de comparación), modelo de actores (overhead de mailbox), bloqueo distribuido (salto de red en el camino crítico).
 
 ### Experiment Design

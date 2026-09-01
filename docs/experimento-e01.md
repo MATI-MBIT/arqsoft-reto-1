@@ -42,9 +42,42 @@ flowchart LR
 
 **H1 — Latencia (ASR-02):** si el motor de emparejamiento implementa el patrón LMAX —libro de órdenes en memoria por activo, un único hilo escritor por partición (single writer) alimentado por un ring buffer (Disruptor), con journaling y notificación asíncronos fuera del camino crítico—, entonces la latencia de emparejamiento se mantendrá p95 ≤ 200 ms bajo 1.000 emparejamientos/min con arribo estocástico (Ambiente A), porque el procesamiento secuencial en memoria elimina bloqueos y contención y deja el costo por evento en el orden de microsegundos.
 
+*La mecánica de H1: el camino crítico es una línea recta en memoria — nadie espera un lock, y lo lento (persistir, notificar) sale del camino:*
+
+```mermaid
+flowchart LR
+    subgraph CC["Camino crítico: todo en memoria, cero locks"]
+      T["hilos gRPC\npublican concurrente"] --> RB["ring buffer\nDisruptor, preasignado"] --> W["ÚNICO hilo escritor\nprocesa secuencial"] --> L["libro en memoria\nmatching precio-tiempo"]
+    end
+    L --> Rta["respuesta\n⏱ p95 ≤ 200 ms"]
+    W -.->|"asíncrono, fuera\ndel camino crítico"| J["journaling +\nnotificación"]
+```
+
 **H2 — Escalabilidad transitoria (ASR-03):** si la ingesta gRPC enruta cada orden por sharding determinístico (hash del símbolo % N) hacia N shards LMAX independientes, con cola acotada como amortiguación de ráfagas, entonces el sistema sostendrá la rampa de 1.000 a 5.000 emparejamientos/min por ventanas de hasta 30 minutos con p95 ≤ 200 ms, siempre que la carga se reparta entre varios activos, porque el throughput total crece agregando shards sin exigir más de un núcleo por partición.
 
+*La mecánica de H2: el pico 5× se divide entre N shards que no comparten nada — cada uno recibe ~1/N de la carga, y si el pico creciera, la respuesta es sumar shards, no acelerar uno:*
+
+```mermaid
+flowchart TB
+    P["Pico 5×: 5.000 emp/min\nrepartidos entre varios activos"] --> Q["cola acotada\namortigua la ráfaga\n(exceso → REJECTED, no espera infinita)"] --> RT{"hash % N"}
+    RT -->|"~1/N de la carga"| SA["shard-0\n≤ 1 núcleo"]
+    RT -->|"~1/N de la carga"| SB["shard-1\n≤ 1 núcleo"]
+    RT -->|"~1/N de la carga"| SC["shard-N…\n+ shards = + throughput"]
+```
+
 **H2b — Partición caliente (exploratoria, subordinada a H2):** si el pico se concentra al 100 % en un solo activo, se espera que el p95 se degrade antes de llegar a 5.000/min, porque el techo de un shard es un solo núcleo por diseño; la Fase 4 busca el punto de quiebre real, no un aprobado/reprobado.
+
+*La mecánica de H2b — el caso donde el sharding no ayuda: un solo símbolo tiene un solo libro dueño, así que todo el pico cae en un shard y los demás miran. Como el libro es indivisible, ese único núcleo es el techo, y F4 pregunta a qué tasa se alcanza:*
+
+```mermaid
+flowchart TB
+    P["Pico concentrado:\n100 % del tráfico en UN símbolo"] --> RT{"hash % N"}
+    RT ==>|"TODO el tráfico"| S0["shard dueño del símbolo\n1 libro · 1 hilo · 1 núcleo\n← ¿a qué tasa se quiebra?"]
+    RT -.->|"nada"| S1["shard-1 ocioso"]
+    RT -.->|"nada"| S2["shard-N… ocioso"]
+```
+
+*(Resultado adelantado: la degradación esperada nunca llegó — el techo de ese único núcleo resultó estar por encima de 12× el pico contractual; ver Results.)*
 
 ### Linked Quality Scenarios
 

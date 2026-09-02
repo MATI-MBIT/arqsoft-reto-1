@@ -5,38 +5,114 @@ nav_order: 4
 
 # Evidencia de corridas — Experimento E01
 
-Registro de las ejecuciones del PoC con sus salidas crudas de k6 y su interpretación. Esta página es la **evidencia externa** enlazada desde la pestaña Experiments de Helix (E01 → Links & evidence).
+Registro de la ejecución vigente del PoC con sus salidas crudas y su interpretación. Esta página es la **evidencia externa** enlazada desde la pestaña Experiments de Helix (E01 → Links & evidence).
 
-**Entorno de todas las corridas:** una sola máquina (macOS, Apple Silicon), topología en Docker Compose — `ingest-router` + **N=2 shards** LMAX (`RING_SIZE=16384`, `QUEUE_CAPACITY=10000`, ZGC) —, generador k6 en el host con modelo abierto de tasa de llegada, tráfico por loopback. Fecha: 30 de agosto de 2026. Limitación declarada en E01: valida el patrón, no el dimensionamiento (sin red real de TEC-2, sin `cpuset`).
+Las corridas del 30 de agosto quedaron **superadas** y se retiraron de esta página: se ejecutaron con arribo equiespaciado (Ca² = 0) y con seis símbolos que repartían 67 %/33 % entre dos shards, de modo que sus percentiles eran cotas optimistas. Siguen en el historial de git.
 
-> **Advertencia de validez — corridas pendientes de repetir.** Las siete corridas de esta sección se tomaron con la versión del generador anterior al 02-sep: k6 emitía las órdenes **equiespaciadas** (Ca² = 0), no con el arribo estocástico que nombra H1, y los 6 símbolos de entonces repartían 67 %/33 % con N=2 (con N=4 un shard quedaba ocioso). Con varianza de arribo nula no hay aglomeración, el ring buffer no acumula y los percentiles —sobre todo p95/p99— son **cotas optimistas**. Medido en A/B sobre el mismo shard: la espera en cola p99.9 pasó de 83–303 µs con arribo periódico a 1.409–4.375 µs con arribo estocástico. Los veredictos de abajo deben releerse como provisionales hasta repetirlas con el generador corregido. **El barrido del tiempo de servicio (más abajo) sí se corrió con el generador corregido** y no está afectado por esta advertencia.
+**Entorno:** una sola máquina (macOS, Apple Silicon, 14 vCPU), topología en Docker Compose — `ingest-router` + **N=2 shards** LMAX (`RING_SIZE=16384`, `QUEUE_CAPACITY=10000`, ZGC) —, generador k6 ≥ 0.49 con gRPC nativo en el host, tráfico por loopback. **Fecha: 2 de septiembre de 2026.** Generador con arribo estocástico (desplazamiento exponencial por iteración, Ca² = 0,89), 36 símbolos que el hash reparte 18/18 con N=2, y umbrales de rechazos, iteraciones descartadas y violaciones de routing. Limitación declarada en E01: valida el patrón, no el dimensionamiento (sin red real de TEC-2, sin `cpuset`).
 
 ## Resumen
 
-| Corrida | Perfil | Órdenes | p50 | p95 | p99 | p99.9 | max | Rechazos | Veredicto |
-|---|---|---|---|---|---|---|---|---|---|
-| Smoke (F1 recortada) | 17/s · 1 min | 1.021 | 8,88 ms | **13,94 ms** | 53,6 ms | 203,6 ms | 204,2 ms | 0 | ✅ p95 ≤ 200 |
-| **F1 — Baseline (oficial)** | 17/s · 12 min · 6 símbolos | 12.241 | 5,35 ms | **9,64 ms** | 13,6 ms | 88,98 ms | 303,8 ms | 0 | ✅ margen ≈ 20× |
-| **F2+F3 — Rampa, pico 30 min y retorno (oficial)** | 17→84/s, pico sostenido 30 min · 40 min | 167.430 | 2,82 ms | **4,91 ms** | 7,47 ms | 36,44 ms | 334,1 ms | 0 | ✅ margen ≈ 40× |
-| **F4 — Partición caliente (contractual)** | igual a F2, 100 % en 1 símbolo | 167.429 | 2,79 ms | **4,87 ms** | 7,7 ms | 45,11 ms | 462,1 ms | 0 | sin degradación |
-| **F4-explore @250/s** | 1 símbolo · ~5 min | 39.539 | 1,25 ms | **3,63 ms** | 5,45 ms | 10,15 ms | 38,9 ms | 0 | sin degradación |
-| **F4-explore @500/s** | 1 símbolo · ~5 min | 77.040 | 0,96 ms | **2,40 ms** | 5,13 ms | 28,03 ms | 169,5 ms | 0 | sin degradación |
-| **F4-explore @1000/s** | 1 símbolo · ~5 min | 152.039 | 0,49 ms | **1,11 ms** | 3,46 ms | 6,03 ms | 14,7 ms | 0 | **techo no alcanzado** |
-| F2-N1 — N mínimo (retroalimentación 01-sep) | perfil F2 corto sobre **1 shard** | — | — | — | — | — | — | — | pendiente |
+| Corrida | Perfil | Órdenes | p50 | **p95** | p99.9 | max | Rechazos | Descartes | Routing | Veredicto |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **F1 — Baseline (oficial)** | 17/s · 12 min · 36 símbolos | 12.241 | 4,41 ms | **7,55 ms** | 19,2 ms | 199 ms | 0 | 0 | 0 | ✅ margen ≈ 26× |
+| **F2+F3 — Rampa, pico 30 min y retorno (oficial)** | 17→84/s · 40 min | 167.429 | 2,23 ms | **4,61 ms** | 14,9 ms | 413 ms | 0 | 0 | 0 | ✅ margen ≈ 43× |
+| **F4 — Partición caliente** | 84/s en 1 símbolo · 29 min | 134.687 | 2,00 ms | **3,30 ms** | 9,5 ms | 72,9 ms | 0 | 0 | — | sin degradación |
+| **F4-explore @250/s** | 1 símbolo · ~5 min | 39.539 | 1,36 ms | **2,90 ms** | 9,9 ms | 47,5 ms | 0 | 0 | — | sin degradación |
+| **F4-explore @500/s** | 1 símbolo · ~5 min | 77.039 | 0,94 ms | **2,17 ms** | 8,2 ms | 119 ms | 0 | 0 | — | sin degradación |
+| **F4-explore @1000/s** | 1 símbolo · ~5 min | 151.702 | 0,61 ms | **1,43 ms** | 447 ms | 777 ms | 0 | **337** | — | **el generador se quedó atrás** |
 
-*(Latencias de `grpc_req_duration`: extremo a extremo del RPC medido por k6. En todas las corridas la tasa promedio lograda coincidió con el valor teórico del perfil — el generador nunca se quedó atrás.)*
+*(`grpc_req_duration` de k6, extremo a extremo. 582.637 órdenes en total, 100 % de checks correctos.)*
+
+**Percentiles internos del motor** (HdrHistogram del shard, promedio de las ventanas de 10 s de mayor carga). La descomposición `total = espera + servicio` separa el tiempo en cola del costo de procesar:
+
+| Corrida | Órdenes/ventana | total p95 | espera p95 | **servicio p50** |
+|---|---|---|---|---|
+| F1 · 17/s · 18 libros por shard | 85 | 272 µs | 200 µs | **90 µs** |
+| F2 · pico 84/s · 18 libros | 418 | 174 µs | 153 µs | **25 µs** |
+| F4 · 84/s · 1 libro | 829 | 127 µs | 117 µs | **13 µs** |
+| F4-explore @250/s | 2.383 | 93 µs | 86 µs | **9 µs** |
+| F4-explore @500/s | 4.758 | 58 µs | 55 µs | **4 µs** |
+| F4-explore @1000/s | 9.481 | 44 µs | 42 µs | **2 µs** |
 
 ## Lectura de los resultados
 
-**F1 valida ASR-02**: a la tasa de Ambiente A (1.000 emp/min por 12 min, arribo estocástico), p95 = 9,64 ms contra 200 ms de presupuesto — margen ~20×, 0 rechazos. **H1 confirmada.**
+**F1 valida ASR-02.** A la tasa de Ambiente A con arribo estocástico y símbolos balanceados, p95 = 7,55 ms contra 200 ms de presupuesto — margen ≈ 26×. Los cuatro umbrales pasan.
 
-**F2+F3 valida ASR-03 con N=2 shards**: rampa a 5.000 emp/min, pico contractual sostenido 30 min y retorno a régimen — 167.430 órdenes, 100 % OK, 0 rechazos, p95 = 4,91 ms (margen ~40×), backlog drenado al cerrar la ventana. **H2 confirmada.**
+**F2+F3 valida ASR-03 con N=2 shards.** Rampa a 5.000 emp/min, pico contractual sostenido 30 min y retorno a régimen: 167.429 órdenes, 100 % OK, p95 = 4,61 ms (margen ≈ 43×).
 
-**F4 contractual: la partición caliente no degrada al pico del contrato**: con el 100 % del tráfico en un solo símbolo (un único shard, un único hilo), el resultado fue estadísticamente idéntico al de la carga repartida (p95 = 4,87 vs 4,91 ms). **H2b no se manifiesta a tasas contractuales.**
+**F3 queda evidenciado con número propio**, por primera vez. Su criterio es que el backlog drene y la latencia vuelva al valor de F1; separando las ventanas internas del shard por régimen:
 
-**F4-explore: el techo de un shard no se alcanzó ni a 12× el pico contractual del sistema completo.** Escalando la carga concentrada a 250, 500 y 1.000 órdenes/s (60.000 emp/min — todo sobre una sola partición), el shard sostuvo cada tasa objetivo exacta, con 0 rechazos, y la latencia **mejoró monotónicamente**: p95 de 3,63 → 2,40 → 1,11 ms, con max de apenas 14,7 ms a la tasa más alta. Es la firma inequívoca del efecto de lote del Disruptor descrito en el diseño: a más ráfaga, más eventos procesa el único escritor por pasada y menor es el costo amortizado por evento — exactamente lo contrario de un sistema con locks, donde más carga significa más contención. El punto de quiebre existe (un núcleo es finito), pero queda acotado por debajo en **> 1.000 órdenes/s por shard**, es decir > 12× la carga pico de todo el sistema contractual concentrada en la peor distribución posible.
+| Ventana | Órdenes/10 s | total p95 | espera p95 |
+|---|---|---|---|
+| F1 baseline (referencia) | 85 | 272 µs | 200 µs |
+| F2 pico 84/s sostenido | 416 | 174 µs | 153 µs |
+| **F3 retorno a régimen** | 85 | **173 µs** | **138 µs** |
 
-**Efecto del arranque en frío**: visible como máximos aislados (200–460 ms) en las corridas largas — las primeras órdenes pagan JIT y carga de clases. El diseño excluye el warm-up del análisis; el agregado de k6 lo incluye, así que los valores reportados son cotas superiores conservadoras.
+La espera vuelve a 138 µs contra los 200 µs de F1: no solo drena, queda por debajo. Antes solo existía el p95 agregado de F2+F3 y el criterio de F3 no tenía evidencia separada.
+
+**El aislamiento del sharding queda demostrado empíricamente.** `shard_routing_violations = 0` en F1 y F2: cada símbolo fue respondido siempre por el mismo shard, sobre 179.670 órdenes. Es la recomendación 2 de la retroalimentación del profesor, que antes se sostenía solo por el argumento matemático.
+
+### El hallazgo central: el costo por orden cae con la carga
+
+Misma máquina, misma corrida, mismo código. Solo cambian la tasa y cuántos libros toca cada shard:
+
+```
+servicio p50:   90 µs → 25 µs → 13 µs → 9 µs → 4 µs → 2 µs
+                17/s    84/s    84/s    250/s  500/s  1000/s
+                18 libros ────┘ └──── 1 libro ──────────────
+```
+
+**45× más barato procesar una orden**, sin cambiar una línea de código. El trabajo es el mismo —un cruce sobre un `TreeMap`—; lo que cambia es que a mayor tasa y con menos libros los datos permanecen calientes en la caché del núcleo y el Disruptor procesa lotes más grandes por pasada. Es la *mechanical sympathy* que el diseño declara como mecanismo del patrón, aislada por primera vez en el componente en vez de inferida de los números extremo a extremo. Los 13 µs de F4 replican de forma independiente los 13 µs medidos en el punto `S=0` del barrido de tiempo de servicio.
+
+La espera acompaña (200 → 42 µs): a tasa baja el hilo matcher se duerme y casi toda la espera es el costo de despertarlo bajo `BlockingWaitStrategy`, no encolamiento. Eso eleva la prioridad de la deuda de decisión sobre la estrategia de espera: a 17/s, **el 74 % de la latencia interna es despertar un hilo**.
+
+### A 1.000 órdenes/s el instrumento satura antes que el motor
+
+`F4-explore @1000/s` es el primer punto donde el generador **no sostuvo la tasa**: 337 iteraciones descartadas, p99.9 de 447 ms y max de 777 ms. Pero los percentiles internos del motor en esa misma corrida son los mejores de toda la serie (total p95 = 44 µs, servicio p50 = 2 µs).
+
+La lectura correcta no es que el motor se degrade, sino que **k6 y el host dejaron de ser instrumentos confiables a esa tasa**: con el arribo estocástico el generador necesita más VUs concurrentes y compite por CPU con los shards en la misma máquina. El techo del shard **sigue sin alcanzarse**, y ahora hay evidencia directa de dónde está el límite del montaje. Sin el umbral `dropped_iterations` esto habría pasado inadvertido y la corrida habría reportado un p95 de 1,43 ms sobre una carga que nunca se aplicó por completo.
+
+## Desviaciones declaradas de esta corrida
+
+- **El ciclo se ejecutó por tramos.** `make e2e` requiere ~1h50m y el entorno de ejecución corta las tareas largas. F1 y F2 corrieron dentro del ciclo original; F4 y F4-explore se reanudaron sobre la misma topología, ya caliente, sin reiniciar contenedores.
+- **F4 corrió 29 de los 40 minutos** previstos (73 %): cubrió el precalentamiento, la rampa y 25 de los 30 minutos de pico sostenido. La ventana de pico —lo que la fase busca— está cubierta.
+- **El libro de `HOT` no arrancó vacío en F4**: conserva el residuo de un intento previo de 4m25s (~10.200 órdenes) sobre el mismo símbolo.
+- Una sola repetición por fase, sin intervalos de confianza entre corridas.
+
+## Salidas crudas de k6
+
+```text
+F1 · make e2e (PHASE=f1, oficial)
+  scenarios: f1: 17.00 iterations/s for 12m0s
+  ✓ p(95)<200 → p(95)=7.55ms · ✓ rechazos=0 · ✓ descartes=0 · ✓ routing=0 · checks 100% (12241)
+  grpc_req_duration: avg=4.51ms p(50)=4.41ms p(95)=7.55ms p(99)=10.03ms p(99.9)=19.22ms max=199.42ms
+  iterations: 12241  16.960762/s
+
+F2+F3 · make e2e (PHASE=f2, oficial)
+  scenarios: f2: Up to 84.00 iterations/s for 40m0s over 5 stages
+  ✓ p(95)<200 → p(95)=4.61ms · ✓ rechazos=0 · ✓ descartes=0 · ✓ routing=0 · checks 100% (167429)
+  grpc_req_duration: avg=2.53ms p(50)=2.23ms p(95)=4.61ms p(99)=7.83ms p(99.9)=14.94ms max=413.16ms
+  iterations: 167429  69.7628/s (= teórico del perfil)
+
+F4 · partición caliente (exploratoria) — 29m07s de 40m
+  grpc_req_duration: avg=2.07ms p(50)=2ms p(95)=3.3ms p(99)=4.15ms p(99.9)=9.51ms max=72.92ms
+  iterations: 134687  77.091808/s · checks 100% · 0 rechazos · 0 descartes
+
+F4-explore · techo de un shard
+  @250/s   grpc_req_duration: avg=1.58ms p(50)=1.36ms p(95)=2.9ms  p(99.9)=9.91ms  max=47.48ms   n=39539   descartes=0
+  @500/s   grpc_req_duration: avg=1.1ms  p(50)=942µs  p(95)=2.17ms p(99.9)=8.21ms  max=118.81ms  n=77039   descartes=0
+  @1000/s  grpc_req_duration: avg=2.47ms p(50)=612µs  p(95)=1.43ms p(99.9)=446.51ms max=776.62ms n=151702  descartes=337
+           ← el generador no sostuvo la tasa; el motor midió su mejor total p95 (44us) en esta misma corrida
+```
+
+Línea interna del shard, con la descomposición `total = espera + servicio`:
+
+```text
+shard=1 n=829 p50=63us p95=127us p99=190us p99.9=280us max=280us
+        | espera   p50=52us p95=117us p99.9=266us
+        | servicio p50=13us p95=28us  p99.9=71us
+```
 
 ## Barrido del tiempo de servicio (S)
 
@@ -97,7 +173,7 @@ Cuatro de cuatro. El modelo entrega exactamente el tiempo que declara.
 
 ### Tres hallazgos
 
-**1. El baseline medía transporte, no el patrón.** En `S=0` el motor aporta **0,11 ms** de los 2,49 ms extremo a extremo: el **96 %** es gRPC, router y la red virtualizada de Docker en macOS. Dentro de esos 0,11 ms, la espera (156 µs p95) es el despertar del hilo matcher dormido bajo `BlockingWaitStrategy`, y el trabajo real son 13 µs. Esto recontextualiza el p95 de 4,87 ms de F4: era, mayoritariamente, la latencia de una máquina virtual. También eleva la prioridad de la deuda de decisión sobre la estrategia de espera.
+**1. El baseline medía transporte, no el patrón.** En `S=0` el motor aporta **0,11 ms** de los 2,49 ms extremo a extremo: el **96 %** es gRPC, router y la red virtualizada de Docker en macOS. Dentro de esos 0,11 ms, la espera (156 µs p95) es el despertar del hilo matcher dormido bajo `BlockingWaitStrategy`, y el trabajo real son 13 µs. El mismo reparto se confirmó en la corrida del 02-sep (F1: 272 µs de motor sobre 7,55 ms extremo a extremo): los p95 reportados miden, mayoritariamente, la latencia de una máquina virtual, no el patrón. También eleva la prioridad de la deuda de decisión sobre la estrategia de espera.
 
 **2. Cero rechazos incluso saturado.** El backpressure no se activó en ningún punto, ni con ρ = 1,01: a ese régimen el déficit es de ~0,7 órdenes/s y llenar un ring de 16.384 tomaría horas. **El sistema se degrada por latencia mucho antes que por rechazo**; el criterio de «0 rechazos» de F1–F3, por sí solo, no protege de nada.
 
@@ -129,60 +205,8 @@ shard=1 n=168 p50=109us p95=180us p99=230us p99.9=322us max=322us
 
 ## Conclusión del experimento
 
-Las siete corridas (~560.000 órdenes en total, 100 % procesadas, 0 rechazos) forman un patrón coherente: **H1 y H2 confirmadas con márgenes de 20–40×, y H2b refutada en todo el rango explorado** — la partición caliente pasa de "riesgo que amenaza el SLA" a "límite de capacidad medido con holgura mínima de 12×". La comparación N=2 vs N=4 a tasas de estrés se descarta como innecesaria en este PoC: para estresar la topología habría que superar el techo (no hallado) de cada shard, punto en el cual el generador y el host único dejarían de ser instrumentos confiables; la aditividad del throughput entre shards queda argumentada por construcción (no comparten nada) y evidenciada por F2/F4 a tasas contractuales. La profundización del techo pertenece al banco de tres nodos (TEC-2).
+Seis corridas, 582.637 órdenes, 100 % procesadas, 0 rechazos y 0 violaciones de routing. **H1 y H2 se cumplen** con márgenes de 26× y 43× bajo arribo estocástico y con el sharding balanceado y verificado en vivo; **F3 confirma que la escalabilidad exigida es transitoria** — el backlog drena y la latencia vuelve por debajo del baseline.
 
-**Reencuadre a partir del barrido de tiempo de servicio (02-sep).** La afirmación «H2b refutada» de arriba mide un `match()` de ~13 µs, no un motor de emparejamiento: con el costo por orden como parámetro, el techo de un shard es 1/S y la partición caliente sí rompe el SLA en cuanto S supera ~8,5 ms. La conclusión defendible no es que el riesgo no exista, sino que **queda acotado por un presupuesto medido**: el patrón sostiene ASR-02/03 en la peor distribución posible mientras el costo por orden se mantenga bajo ~8,5 ms. Verificar ese presupuesto contra la lógica de negocio real es el siguiente paso del experimento.
+**H2b no se refuta: se reformula.** La partición caliente no degradó el servicio ni a 12× el pico contractual, pero el techo de un shard es 1/S y estas corridas lo midieron con un `match()` de 13 µs. El barrido de tiempo de servicio acota el resultado a un **presupuesto**: el patrón sostiene el ASR con todo el pico en una sola partición mientras el costo por orden se mantenga bajo **~8,5 ms**. Por encima, H2b se manifiesta. La hipótesis de mayor riesgo pasa de "amenaza al SLA" a "condición verificable contra la lógica de negocio real".
 
-## Salidas crudas de k6
-
-### Smoke — `make smoke` (PHASE=f1, SMOKE=1)
-
-```text
-scenarios: f1: 17.00 iterations/s for 1m0s
-✓ 'p(95)<200' p(95)=13.94ms · ✓ rechazos count=0 · checks 100% (1021)
-grpc_req_duration: avg=9.84ms p(50)=8.88ms p(95)=13.94ms p(99)=53.6ms p(99.9)=203.61ms max=204.16ms
-```
-
-### F1 — `make f1` (oficial, baseline ASR-02)
-
-```text
-scenarios: f1: 17.00 iterations/s for 12m0s
-✓ 'p(95)<200' p(95)=9.64ms · ✓ rechazos count=0 · checks 100% (12241)
-grpc_req_duration: avg=5.76ms p(50)=5.35ms p(95)=9.64ms p(99)=13.6ms p(99.9)=88.98ms max=303.81ms
-iterations: 12241  17.001315/s — 0 interrupted
-```
-
-### F2+F3 — `make f2` (oficial, rampa + pico 30 min + retorno, ASR-03)
-
-```text
-scenarios: f2: Up to 84.00 iterations/s for 40m0s over 5 stages
-  2m @17/s → 2m rampa 17→84/s → 30m @84/s (pico Ambiente B) → 1m rampa ↓ → 5m @17/s (F3)
-✓ 'p(95)<200' p(95)=4.91ms · ✓ rechazos count=0 · checks 100% (167430)
-grpc_req_duration: avg=3.03ms p(50)=2.82ms p(95)=4.91ms p(99)=7.47ms p(99.9)=36.44ms max=334.14ms
-iterations: 167430  69.762254/s (= teórico del perfil) — 0 interrupted
-```
-
-### F4 — `make f4` (partición caliente al pico contractual, exploratoria)
-
-```text
-scenarios: f4: Up to 84.00 iterations/s for 40m0s — 100 % del tráfico en 'HOT' → un único shard
-checks 100% (167429) · 0 rechazos (sin thresholds: fase exploratoria)
-grpc_req_duration: avg=3.07ms p(50)=2.79ms p(95)=4.87ms p(99)=7.7ms p(99.9)=45.11ms max=462.14ms
-iterations: 167429  69.761979/s — 0 interrupted
-```
-
-### F4-explore — `make f4-explore` (punto de quiebre de un shard)
-
-```text
-@250/s  (promedio logrado 146.44/s = teórico): checks 100% (39539) · 0 rechazos
-        grpc_req_duration: avg=1.69ms p(50)=1.25ms p(95)=3.63ms p(99)=5.45ms p(99.9)=10.15ms max=38.86ms
-
-@500/s  (promedio logrado 285.33/s = teórico): checks 100% (77040) · 0 rechazos
-        grpc_req_duration: avg=1.18ms p(50)=956µs p(95)=2.4ms p(99)=5.13ms p(99.9)=28.03ms max=169.52ms
-
-@1000/s (promedio logrado 563.10/s = teórico): checks 100% (152039) · 0 rechazos
-        grpc_req_duration: avg=614µs p(50)=491µs p(95)=1.11ms p(99)=3.46ms p(99.9)=6.03ms max=14.65ms
-
-Punto de quiebre: NO alcanzado. Cota inferior del techo de un shard: > 1.000 órdenes/s
-(> 60.000 emp/min concentrados en una sola partición = 12× el pico contractual del sistema).
-```
+Dos claims del diseño siguen **sin evidencia** y así están declarados en la ficha: la cláusula de H2 sobre no exigir más de un núcleo por partición (no se midió CPU por proceso) y la de H1 sobre journaling fuera del camino crítico (no hay journaling en el PoC). Verificar el presupuesto contra la lógica de negocio real y repetir en el banco de tres nodos (TEC-2) son los siguientes pasos.

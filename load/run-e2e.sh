@@ -23,14 +23,26 @@ SMOKE_FLAG=""
 
 FAILED=()
 
+# Percentiles internos del shard de la fase (total | espera | servicio). Es la
+# contraparte de la medición de k6: su contraste separa el costo del patrón del
+# costo de transporte. Hay que capturarlos ANTES de bajar la topología — al
+# destruir los contenedores se pierden sus logs.
+capture_shard_logs() {
+  local name="$1" since="$2"
+  $COMPOSE logs --no-color --since "$since" 2>/dev/null \
+    | grep -E "shard=[0-9]+ n=" > "$OUT/$name-shard.log" || true
+}
+
 run_phase() {
   local name="$1"; shift
+  local since; since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo ""
   echo "════════════════════════════════════════════════════"
   echo "  Fase: $name"
   echo "════════════════════════════════════════════════════"
   ( cd "$ROOT/load/k6" && k6 run $SMOKE_FLAG "$@" --summary-export="$OUT/$name.json" poc.js ) 2>&1 | tee "$OUT/$name.txt"
   local rc=${PIPESTATUS[0]}
+  capture_shard_logs "$name" "$since"
   if [ "$rc" -ne 0 ]; then
     FAILED+=("$name")
   fi
@@ -53,12 +65,14 @@ run_phase f4 -e PHASE=f4
 
 # 4. Exploración del techo de un shard (siempre corta)
 for peak in 250 500 1000; do
+  since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo ""
   echo "════════════════════════════════════════════════════"
   echo "  Fase: f4-explore @ ${peak}/s"
   echo "════════════════════════════════════════════════════"
   ( cd "$ROOT/load/k6" && k6 run -e SMOKE=1 -e PHASE=f4 -e PEAK="$peak" \
       --summary-export="$OUT/f4-explore-$peak.json" poc.js ) 2>&1 | tee "$OUT/f4-explore-$peak.txt"
+  capture_shard_logs "f4-explore-$peak" "$since"
 done
 
 # 5. Bajar topología
@@ -71,7 +85,8 @@ for f in "$OUT"/*.txt; do
   n="$(basename "$f" .txt)"
   p95="$(grep 'grpc_req_duration' "$f" | grep -o 'p(95)=[^ ]*' | head -1)"
   rej="$(grep -o 'orders_rejected_backpressure[^0-9]*[0-9]*' "$f" | head -1 | grep -o '[0-9]*$')"
-  printf "  %-18s %-16s rechazos=%s\n" "$n" "${p95:-sin dato}" "${rej:-0}"
+  drop="$(grep -o 'dropped_iterations[^0-9]*[0-9]*' "$f" | head -1 | grep -o '[0-9]*$')"
+  printf "  %-18s %-16s rechazos=%s descartes=%s\n" "$n" "${p95:-sin dato}" "${rej:-0}" "${drop:-0}"
 done
 echo "  Salidas crudas (.txt) y resúmenes (.json) en: $OUT"
 if [ "${#FAILED[@]}" -gt 0 ]; then

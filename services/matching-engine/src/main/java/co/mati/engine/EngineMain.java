@@ -23,6 +23,8 @@ import java.util.concurrent.TimeUnit;
  *   SHARD_ID   — id de esta partición (default 0)
  *   PORT       — puerto gRPC (default 9090)
  *   RING_SIZE  — tamaño del ring buffer, potencia de 2 (default 16384)
+ *   BIZ_MICROS — costo medio por orden, en µs, del modelo sintético de lógica
+ *                de negocio (0 o ausente = apagado; ver BusinessLogicModel)
  */
 public final class EngineMain {
 
@@ -33,8 +35,12 @@ public final class EngineMain {
         int port = Integer.parseInt(env("PORT", "9090"));
         int ringSize = Integer.parseInt(env("RING_SIZE", "16384"));
 
-        // Histograma de latencia interna (arribo → materialización), en microsegundos.
+        // Histogramas de latencia interna, en microsegundos. Total = espera + servicio.
         Recorder latencyRecorder = new Recorder(3);
+        Recorder waitRecorder = new Recorder(3);
+        Recorder serviceRecorder = new Recorder(3);
+
+        BusinessLogicModel businessLogic = BusinessLogicModel.fromEnv();
 
         ThreadFactory matcherThreadFactory = r -> {
             Thread t = new Thread(r, "matcher-shard-" + shardId);
@@ -52,7 +58,8 @@ public final class EngineMain {
                 ProducerType.MULTI,          // varios hilos gRPC publican; consume UNO solo
                 new BlockingWaitStrategy());
 
-        disruptor.handleEventsWith(new MatchingHandler(shardId, latencyRecorder));
+        disruptor.handleEventsWith(
+                new MatchingHandler(shardId, latencyRecorder, waitRecorder, serviceRecorder, businessLogic));
         disruptor.start();
 
         Server server = ServerBuilder.forPort(port)
@@ -61,6 +68,9 @@ public final class EngineMain {
                 .start();
 
         log.info("matching-engine shard={} escuchando gRPC en :{} (ring={})", shardId, port, ringSize);
+        // Provenance de la corrida: qué se midió exactamente. Sin esta línea, un
+        // resultado de capacidad es ambiguo — ver BusinessLogicModel.
+        log.info("shard={} modelo de logica de negocio: {}", shardId, businessLogic.describe());
 
         // Reporte periódico de percentiles: la contraparte interna de la medición del generador.
         ScheduledExecutorService reporter = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -69,18 +79,30 @@ public final class EngineMain {
             return t;
         });
         reporter.scheduleAtFixedRate(() -> {
-            Histogram interval = latencyRecorder.getIntervalHistogram();
-            if (interval.getTotalCount() == 0) {
+            Histogram total = latencyRecorder.getIntervalHistogram();
+            Histogram wait = waitRecorder.getIntervalHistogram();
+            Histogram service = serviceRecorder.getIntervalHistogram();
+            if (total.getTotalCount() == 0) {
                 return;
             }
-            log.info("shard={} n={} p50={}us p95={}us p99={}us p99.9={}us max={}us",
+            log.info("shard={} n={} p50={}us p95={}us p99={}us p99.9={}us max={}us"
+                            + " | espera p50={}us p95={}us p99.9={}us max={}us"
+                            + " | servicio p50={}us p95={}us p99.9={}us max={}us",
                     shardId,
-                    interval.getTotalCount(),
-                    interval.getValueAtPercentile(50.0),
-                    interval.getValueAtPercentile(95.0),
-                    interval.getValueAtPercentile(99.0),
-                    interval.getValueAtPercentile(99.9),
-                    interval.getMaxValue());
+                    total.getTotalCount(),
+                    total.getValueAtPercentile(50.0),
+                    total.getValueAtPercentile(95.0),
+                    total.getValueAtPercentile(99.0),
+                    total.getValueAtPercentile(99.9),
+                    total.getMaxValue(),
+                    wait.getValueAtPercentile(50.0),
+                    wait.getValueAtPercentile(95.0),
+                    wait.getValueAtPercentile(99.9),
+                    wait.getMaxValue(),
+                    service.getValueAtPercentile(50.0),
+                    service.getValueAtPercentile(95.0),
+                    service.getValueAtPercentile(99.9),
+                    service.getMaxValue());
         }, 10, 10, TimeUnit.SECONDS);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {

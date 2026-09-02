@@ -53,6 +53,7 @@ make smoke     # humo de ~1 min para verificar el montaje
 | `make f1` | F1 — baseline ASR-02 (12 min, p95 < 200 ms) |
 | `make f2` | F2+F3 — rampa, pico de 30 min y retorno a régimen (ASR-03) |
 | `make f4` | F4 — partición caliente al pico contractual (exploratoria, sin criterio binario) |
+| **`make sweep-service`** | Barre el costo por orden (S) y produce el **presupuesto de tiempo de servicio**: el mayor S con el que el patrón aún cumple p95 ≤ 200 ms. Sin esto, el techo medido es el de un `TreeMap`, no el de un motor |
 | `make f4-explore` / `make f4-peak PEAK=n` | Busca el punto de quiebre de un shard (corridas cortas a 250/500/1000/s o tasa libre) |
 | `make compare-sharding PEAK=n` | Corre la misma carga repartida sobre N=2 y luego N=4: evidencia de escalamiento por sharding |
 | `make experimento` | Secuencia oficial completa: `up` → F1 → F2+F3 → F4 |

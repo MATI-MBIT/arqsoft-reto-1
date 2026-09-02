@@ -125,6 +125,36 @@ f4-explore: ## Busca el punto de quiebre de un shard: corridas de ~5 min a 250, 
 	@echo "Leer en cada corrida: p95, rechazos (backpressure) y si k6 sostuvo la tasa objetivo."
 	@echo "El punto de quiebre es la primera tasa donde alguno de los tres se degrada."
 
+# ---------- Barrido del tiempo de servicio (modelo de lógica de negocio) ------
+# El techo de un shard es 1/S, donde S es el costo por orden. Con el match() de
+# juguete S es de microsegundos, así que el techo medido es el de un TreeMap y no
+# el de un motor real. Este barrido recorre S y produce el PRESUPUESTO: el mayor
+# costo por orden con el que el patrón todavía cumple p95 <= 200 ms.
+
+SWEEP_MICROS ?= 0 1000 5000 8000 10000 12000
+SWEEP_PEAK   ?= 84
+SWEEP_PHASE  ?= f4
+SWEEP_OUT    ?= load/k6/results/sweep
+
+.PHONY: sweep-service
+sweep-service: ## Barre el costo por orden S y produce el presupuesto de tiempo de servicio (peor caso: partición caliente)
+	@$(COMPOSE) build
+	@for S in $(SWEEP_MICROS); do \
+	  echo ""; \
+	  echo "================ S=$${S}us · $(SWEEP_PEAK)/s · fase $(SWEEP_PHASE) ================"; \
+	  $(COMPOSE) --profile n4 down --remove-orphans >/dev/null 2>&1 || true; \
+	  BIZ_MICROS=$$S $(COMPOSE) up -d >/dev/null; \
+	  sleep 20; \
+	  ( cd $(K6_DIR) && k6 run -e PHASE=$(SWEEP_PHASE) -e SMOKE=1 -e PEAK=$(SWEEP_PEAK) poc.js ) || true; \
+	  mkdir -p $(SWEEP_OUT); \
+	  $(COMPOSE) logs --no-color matching-shard-0 matching-shard-1 2>/dev/null | grep -E "modelo de logica|p50=" > $(SWEEP_OUT)/shard-S$${S}us.log; \
+	  echo "--- interno del shard: total | espera (cola) | servicio (S real) — completo en $(SWEEP_OUT)/shard-S$${S}us.log ---"; \
+	  tail -4 $(SWEEP_OUT)/shard-S$${S}us.log; \
+	done
+	@echo ""
+	@echo "Lectura: 'servicio' debe seguir a S y NO depender de la tasa; 'espera' es lo que"
+	@echo "explota cuando rho -> 1. El presupuesto es el mayor S que aun cumple p95 <= 200 ms."
+
 .PHONY: compare-sharding
 compare-sharding: ## Compara N=2 vs N=4 con carga repartida a tasa PEAK/s (make compare-sharding PEAK=400)
 	@echo "===== Topología N=2 @ $(PEAK)/s ====="

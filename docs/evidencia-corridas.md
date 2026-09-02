@@ -9,6 +9,8 @@ Registro de las ejecuciones del PoC con sus salidas crudas de k6 y su interpreta
 
 **Entorno de todas las corridas:** una sola máquina (macOS, Apple Silicon), topología en Docker Compose — `ingest-router` + **N=2 shards** LMAX (`RING_SIZE=16384`, `QUEUE_CAPACITY=10000`, ZGC) —, generador k6 en el host con modelo abierto de tasa de llegada, tráfico por loopback. Fecha: 30 de agosto de 2026. Limitación declarada en E01: valida el patrón, no el dimensionamiento (sin red real de TEC-2, sin `cpuset`).
 
+> **Advertencia de validez — corridas pendientes de repetir.** Las siete corridas de esta sección se tomaron con la versión del generador anterior al 02-sep: k6 emitía las órdenes **equiespaciadas** (Ca² = 0), no con el arribo estocástico que nombra H1, y los 6 símbolos de entonces repartían 67 %/33 % con N=2 (con N=4 un shard quedaba ocioso). Con varianza de arribo nula no hay aglomeración, el ring buffer no acumula y los percentiles —sobre todo p95/p99— son **cotas optimistas**. Medido en A/B sobre el mismo shard: la espera en cola p99.9 pasó de 83–303 µs con arribo periódico a 1.409–4.375 µs con arribo estocástico. Los veredictos de abajo deben releerse como provisionales hasta repetirlas con el generador corregido. **El barrido del tiempo de servicio (más abajo) sí se corrió con el generador corregido** y no está afectado por esta advertencia.
+
 ## Resumen
 
 | Corrida | Perfil | Órdenes | p50 | p95 | p99 | p99.9 | max | Rechazos | Veredicto |
@@ -36,9 +38,100 @@ Registro de las ejecuciones del PoC con sus salidas crudas de k6 y su interpreta
 
 **Efecto del arranque en frío**: visible como máximos aislados (200–460 ms) en las corridas largas — las primeras órdenes pagan JIT y carga de clases. El diseño excluye el warm-up del análisis; el agregado de k6 lo incluye, así que los valores reportados son cotas superiores conservadoras.
 
+## Barrido del tiempo de servicio (S)
+
+**Fecha:** 2 de septiembre de 2026 · **Comando:** `make sweep-service SWEEP_MICROS="0 1000 5000 8000 10000 12000"`
+
+### Por qué este barrido
+
+`OrderBook.match()` cuesta ~13 µs medidos. El PoC no implementa validación, control de riesgo, saldos, tipos de orden, comisiones ni generación de trades. Como en un diseño de **un único escritor** ese costo se serializa, fija el techo del shard: `techo = 1/S`, con `ρ = λ·S`. Medir la capacidad con S de microsegundos mide un `TreeMap`, no un motor — por eso la cifra de «techo > 1.000 ord/s» de F4-explore no es una propiedad del patrón. Sin estimación del costo real, `BusinessLogicModel` lo convierte en parámetro barrido y el entregable pasa de ser un número a ser un **presupuesto**.
+
+### Montaje
+
+Topología N=2 en Docker Compose, fase **F4 en versión corta** (~4,5 min: 30 s @17/s → rampa → 2 min @84/s → bajada → 1 min @17/s) con el **100 % del tráfico en un único símbolo**: todo el pico contractual concentrado en un solo shard, la peor distribución posible. Generador ya corregido (arribo exponencial, 36 símbolos balanceados, umbral de iteraciones descartadas). Modelo de servicio: mezcla de tres clases 90 % ×1 / 9 % ×6 / 1 % ×30, Cs² = 3,34, acotada por construcción en ~17× la media.
+
+### Resultados
+
+| S | ρ | p50 | **p95** | p99 | p99.9 | max | Rechazos | Descartes | Veredicto |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 | 0,00 | 2,49 ms | **5,93 ms** | 9,35 ms | 15,5 ms | 188 ms | 0 | 0 | ✅ PASA |
+| 1.000 µs | 0,08 | 2,84 ms | **7,87 ms** | 18,8 ms | 24,1 ms | 134 ms | 0 | 0 | ✅ PASA |
+| 5.000 µs | 0,42 | 4,63 ms | **65,59 ms** | 95,2 ms | 156 ms | 242 ms | 0 | 0 | ✅ PASA |
+| 8.000 µs | 0,67 | 9,99 ms | **148,19 ms** | 251 ms | 350 ms | 413 ms | 0 | 0 | ✅ PASA |
+| 10.000 µs | 0,84 | 36,7 ms | **346,43 ms** | 521 ms | 676 ms | 754 ms | 0 | 0 | ❌ FALLA |
+| 12.000 µs | 1,01 | 1,12 s | **2,68 s** | 3,26 s | 3,42 s | 3,54 s | 0 | **143** | ❌ FALLA |
+
+*(`grpc_req_duration` de k6, extremo a extremo. ρ calculado sobre el pico de 84/s en un solo shard.)*
+
+### El presupuesto
+
+> **≈ 8,5 ms por orden.** Con todo el tráfico del pico contractual cayendo en una sola partición, el patrón LMAX cumple p95 ≤ 200 ms mientras procesar una orden cueste hasta ~8,5 ms.
+
+Acotado por medición —8 ms pasa con 148 ms, 10 ms falla con 346 ms— e interpolado en el cruce. Es el resultado principal del barrido, y es **falsable sin conocer todavía la lógica de negocio real**: cuando exista, se mide su costo y se compara contra este presupuesto. Corolario: **H2b deja de ser un veredicto binario** — la partición caliente amenaza el SLA si y solo si el costo por orden supera ~8,5 ms.
+
+### El mecanismo: servicio contra espera
+
+Percentiles internos del shard, promediando las ventanas de 10 s **del pico** (84/s sostenidos):
+
+| S | espera p50 | espera p95 | servicio p50 | La cola es el… |
+|---|---|---|---|---|
+| 5.000 µs | 0,1 ms | 49,0 ms | 2,88 ms | 82 % del total |
+| 8.000 µs | 6,0 ms | 139,5 ms | 4,60 ms | 91 % |
+| 10.000 µs | 59,2 ms | 304,2 ms | 5,75 ms | 96 % |
+| 12.000 µs | 1.334 ms | 1.802 ms | 6,90 ms | 99 % |
+
+Todo el argumento en dos columnas: **el servicio crece lineal** (2,88 → 6,90 ms, lo configurado) mientras **la espera crece 13.000×** (0,1 → 1.334 ms). El sistema no se degrada suavemente: cae por un acantilado al acercarse ρ a 1. Es también la utilidad práctica de la descomposición — distingue «hay que abaratar la orden» de «hay que shardear más». A partir de ~5 ms, la respuesta es shardear.
+
+### Validación del modelo en caliente
+
+La mediana teórica de la mezcla es 0,575 × S. Medido dentro del contenedor, bajo carga y en saturación:
+
+| S configurado | servicio p50 predicho | medido |
+|---|---|---|
+| 5.000 µs | 2.874 µs | 2.880 µs |
+| 8.000 µs | 4.598 µs | 4.600 µs |
+| 10.000 µs | 5.748 µs | 5.750 µs |
+| 12.000 µs | 6.898 µs | 6.900 µs |
+
+Cuatro de cuatro. El modelo entrega exactamente el tiempo que declara.
+
+### Tres hallazgos
+
+**1. El baseline medía transporte, no el patrón.** En `S=0` el motor aporta **0,11 ms** de los 2,49 ms extremo a extremo: el **96 %** es gRPC, router y la red virtualizada de Docker en macOS. Dentro de esos 0,11 ms, la espera (156 µs p95) es el despertar del hilo matcher dormido bajo `BlockingWaitStrategy`, y el trabajo real son 13 µs. Esto recontextualiza el p95 de 4,87 ms de F4: era, mayoritariamente, la latencia de una máquina virtual. También eleva la prioridad de la deuda de decisión sobre la estrategia de espera.
+
+**2. Cero rechazos incluso saturado.** El backpressure no se activó en ningún punto, ni con ρ = 1,01: a ese régimen el déficit es de ~0,7 órdenes/s y llenar un ring de 16.384 tomaría horas. **El sistema se degrada por latencia mucho antes que por rechazo**; el criterio de «0 rechazos» de F1–F3, por sí solo, no protege de nada.
+
+**3. Los 143 descartes en `S=12000`.** Primera activación del umbral `dropped_iterations`. Con respuestas de 1,1 s el generador no pudo sostener la tasa objetivo; sin ese umbral la corrida habría reportado un p95 sobre una carga que nunca se aplicó.
+
+### Limitaciones de este barrido
+
+Es una **cota inferior conservadora**: macOS con Docker en VM y sin `cpuset`, así que el modelo quema CPU compitiendo con k6 y el router en la misma máquina; corridas cortas de 4,5 min en vez de las oficiales de 40 min; y una sola repetición por punto, sin intervalos de confianza. En Linux con núcleos dedicados el presupuesto debería salir mayor. Fijarlo con rigor pertenece al banco de tres nodos (TEC-2).
+
+### Salidas crudas de k6
+
+```text
+S=0us      grpc_req_duration: avg=2.9ms   p(50)=2.49ms  p(95)=5.93ms   p(99)=9.35ms   p(99.9)=15.51ms  max=188.37ms
+S=1000us   grpc_req_duration: avg=3.68ms  p(50)=2.84ms  p(95)=7.87ms   p(99)=18.76ms  p(99.9)=24.09ms  max=133.88ms
+S=5000us   grpc_req_duration: avg=13.03ms p(50)=4.63ms  p(95)=65.59ms  p(99)=95.15ms  p(99.9)=156.33ms max=242.12ms
+S=8000us   grpc_req_duration: avg=36.36ms p(50)=9.99ms  p(95)=148.19ms p(99)=250.91ms p(99.9)=350.13ms max=412.98ms
+S=10000us  grpc_req_duration: avg=96.21ms p(50)=36.65ms p(95)=346.43ms p(99)=521.1ms  p(99.9)=676.27ms max=753.75ms
+S=12000us  grpc_req_duration: avg=1.13s   p(50)=1.12s   p(95)=2.68s    p(99)=3.26s    p(99.9)=3.42s    max=3.54s
+                              dropped_iterations=143  (unico punto con descartes)
+```
+
+Línea interna del shard (`S=0`, ventana de 10 s), con la descomposición total = espera + servicio:
+
+```text
+shard=1 n=168 p50=109us p95=180us p99=230us p99.9=322us max=322us
+        | espera   p50=92us p95=163us p99.9=281us max=281us
+        | servicio p50=13us p95=34us  p99.9=88us  max=88us
+```
+
 ## Conclusión del experimento
 
 Las siete corridas (~560.000 órdenes en total, 100 % procesadas, 0 rechazos) forman un patrón coherente: **H1 y H2 confirmadas con márgenes de 20–40×, y H2b refutada en todo el rango explorado** — la partición caliente pasa de "riesgo que amenaza el SLA" a "límite de capacidad medido con holgura mínima de 12×". La comparación N=2 vs N=4 a tasas de estrés se descarta como innecesaria en este PoC: para estresar la topología habría que superar el techo (no hallado) de cada shard, punto en el cual el generador y el host único dejarían de ser instrumentos confiables; la aditividad del throughput entre shards queda argumentada por construcción (no comparten nada) y evidenciada por F2/F4 a tasas contractuales. La profundización del techo pertenece al banco de tres nodos (TEC-2).
+
+**Reencuadre a partir del barrido de tiempo de servicio (02-sep).** La afirmación «H2b refutada» de arriba mide un `match()` de ~13 µs, no un motor de emparejamiento: con el costo por orden como parámetro, el techo de un shard es 1/S y la partición caliente sí rompe el SLA en cuanto S supera ~8,5 ms. La conclusión defendible no es que el riesgo no exista, sino que **queda acotado por un presupuesto medido**: el patrón sostiene ASR-02/03 en la peor distribución posible mientras el costo por orden se mantenga bajo ~8,5 ms. Verificar ese presupuesto contra la lógica de negocio real es el siguiente paso del experimento.
 
 ## Salidas crudas de k6
 

@@ -19,6 +19,10 @@ services:
       SHARD_ID: "0"
       PORT: "9090"
       RING_SIZE: "16384"
+      # Costo medio por orden (µs) del modelo sintético de lógica de negocio
+      # (ver BusinessLogicModel). 0 = apagado: se mide solo el patrón, que es la
+      # medición original. El barrido lo fija `make sweep-service`.
+      BIZ_MICROS: "${BIZ_MICROS:-0}"
     # cpuset: "2"        # ← descomentar en Linux: un núcleo dedicado por shard
 
   matching-shard-1:
@@ -30,6 +34,10 @@ services:
       SHARD_ID: "1"
       PORT: "9090"
       RING_SIZE: "16384"
+      # Costo medio por orden (µs) del modelo sintético de lógica de negocio
+      # (ver BusinessLogicModel). 0 = apagado: se mide solo el patrón, que es la
+      # medición original. El barrido lo fija `make sweep-service`.
+      BIZ_MICROS: "${BIZ_MICROS:-0}"
     # cpuset: "3"
 
   matching-shard-2:
@@ -42,6 +50,10 @@ services:
       SHARD_ID: "2"
       PORT: "9090"
       RING_SIZE: "16384"
+      # Costo medio por orden (µs) del modelo sintético de lógica de negocio
+      # (ver BusinessLogicModel). 0 = apagado: se mide solo el patrón, que es la
+      # medición original. El barrido lo fija `make sweep-service`.
+      BIZ_MICROS: "${BIZ_MICROS:-0}"
     # cpuset: "4"
 
   matching-shard-3:
@@ -54,6 +66,10 @@ services:
       SHARD_ID: "3"
       PORT: "9090"
       RING_SIZE: "16384"
+      # Costo medio por orden (µs) del modelo sintético de lógica de negocio
+      # (ver BusinessLogicModel). 0 = apagado: se mide solo el patrón, que es la
+      # medición original. El barrido lo fija `make sweep-service`.
+      BIZ_MICROS: "${BIZ_MICROS:-0}"
     # cpuset: "5"
 
   ingest-router:

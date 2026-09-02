@@ -60,6 +60,7 @@ El router es **sin estado**: no conoce libros ni órdenes. Por eso en el diseño
 | `IngestGrpcService` | Borde gRPC → ring buffer con `tryNext()` (backpressure sin bloqueo). Estampa el `t0` de la medición. |
 | `MatchingHandler` | El *single writer* del patrón LMAX: procesa secuencialmente, sin locks; un `HashMap<String, OrderBook>` por shard; registra latencia y completa el futuro. |
 | `OrderBook` | Libro de un activo: `TreeMap<precio, ArrayDeque<Resting>>` para compras (descendente) y ventas (ascendente); matching por prioridad precio-tiempo con cruce parcial y resto en reposo. **No es thread-safe a propósito** — la exclusión la da el diseño, no los locks. |
+| `BusinessLogicModel` | **Modelo sintético del tiempo de servicio** de la lógica que el PoC no implementa (validación, riesgo, tipos de orden, comisiones, trades). Quema CPU —no duerme— en el hilo del único escritor. Una sola perilla: `BIZ_MICROS`. Apagado por defecto. |
 | `OrderSlot` | Entrada mutable y preasignada del ring: se rellena al publicar y se limpia al consumir, para que en régimen el camino crítico no genere basura (menos presión de GC). |
 
 ## 4. Mapeo táctica → código
@@ -84,18 +85,36 @@ El router es **sin estado**: no conoce libros ni órdenes. Por eso en el diseño
 | `QUEUE_CAPACITY` | router | 10000 | Solicitudes en vuelo antes de rechazar (cola acotada) |
 | `SHARD_ID` | engine | 0 | Identificador reportado en respuestas y logs |
 | `RING_SIZE` | engine | 16384 | Tamaño del ring buffer (potencia de 2) |
+| `BIZ_MICROS` | engine | 0 | Costo **medio** por orden (µs) del modelo de tiempo de servicio; 0 = apagado |
 | `JAVA_OPTS` | ambos (Docker) | ZGC, 256–512 MB | Flags de la JVM |
 
 Todo el ciclo de vida está en el **Makefile**: `make build`, `make up` / `make up-n4`, `make smoke`, `make f1|f2|f4`, `make experimento`, `make logs`, `make down`. Cambiar N=2 → N=4 no toca código: el perfil `n4` del compose levanta dos shards más y `make up-n4` le pasa al router la lista de 4.
 
 ## 6. Metodología de medición
 
-- **Modelo abierto de llegada** (k6 `constant/ramping-arrival-rate`): la carga se expresa como tasa objetivo, no como usuarios que esperan respuesta; el modelo cerrado subestima los percentiles bajo saturación (*coordinated omission*). Limitación declarada: estos ejecutores espacian los arribos de forma uniforme (no Poisson) — la aleatoriedad de la corrida está en símbolo, lado, precio y cantidad, no en el instante de llegada.
+- **Modelo abierto de llegada** (k6 `constant/ramping-arrival-rate`): la carga se expresa como tasa objetivo, no como usuarios que esperan respuesta; el modelo cerrado subestima los percentiles bajo saturación (*coordinated omission*).
 - **Verificación de aislamiento del sharding** (retroalimentación 01-sep): cada respuesta trae el `shard_id` que la procesó y k6 verifica en vivo que un mismo símbolo sea respondido siempre por el mismo shard (contador `shard_routing_violations` con threshold `count==0` en las fases oficiales) — evidencia empírica de la correlación entrada↔salida, además del argumento por construcción (`floorMod(hashCode, N)`).
+- **Arribo estocástico**: el modelo abierto por sí solo no basta. Los ejecutores `*-arrival-rate` de k6 espacian los arribos de forma **uniforme** (su documentación: «iteration starts are fractionally spaced») — a 17/s, uno cada 58,8 ms exactos. Con varianza de arribo nula la espera en cola se desploma (Kingman): el ring buffer nunca acumula, el backpressure nunca se activa y los percentiles salen optimistas. El generador lo corrige desplazando cada iteración un tiempo **exponencial** independiente antes del RPC; por Palm–Khintchine la superposición converge a Poisson conservando la tasa media. Medido sobre 200.000 llegadas simuladas, Ca² pasa de **0,00 a 0,89** (Poisson = 1) sin desviar la tasa. `JITTER_FACTOR=0` restaura el arribo periódico para comparar A/B.
+- **Símbolos que reparten parejo**: el sharding es `floorMod(String.hashCode(símbolo), N)`, así que el conjunto de prueba decide el balance. Los 36 nemotécnicos del generador reparten **18/18 con N=2 y 9/9/9/9 con N=4**; al cambiar la lista hay que reverificar el reparto.
 - **Criterio de éxito p95 ≤ 200 ms** como threshold de k6 (falla la corrida en vivo); p99/p99.9 se registran como observación (`summaryTrendStats`).
 - **Doble punto de medida**: `grpc_req_duration` en k6 vs. HdrHistogram del shard (logueado cada 10 s). La brecha entre ambos aísla el costo de red/router.
-- **Rechazos como métrica de primera clase**: el contador `orders_rejected_backpressure` debe ser 0 en F1–F3; en F4 su aparición es parte del resultado (dónde se activa la protección).
+- **Rechazos como métrica de primera clase**: el contador `orders_rejected_backpressure` debe ser 0 en F1–F3; en F4 su aparición es parte del resultado (dónde se activa la protección). Medido en el barrido de servicio: **el sistema se degrada por latencia mucho antes que por rechazo** — ni siquiera a ρ = 1,01 se activó el backpressure, así que este criterio por sí solo no protege de nada.
+- **Iteraciones descartadas como criterio de validez**: `dropped_iterations` debe ser 0 en F1–F3 (threshold de k6). k6 descarta una iteración cuando no tiene un VU libre; esa es carga que **nunca se aplicó**, así que el p95 resultante subestima al sistema. Según la documentación de k6, si los descartes aparecen ya avanzada la corrida son además síntoma de degradación del propio motor.
 - **Precalentamiento**: los primeros minutos de cada corrida estabilizan JIT/GC y se excluyen del análisis.
+
+### El tiempo de servicio como parámetro del experimento
+
+`OrderBook.match()` cuesta ~13 µs medidos. Un motor real además valida, verifica riesgo, saldos y posiciones, resuelve tipos de orden, calcula comisiones, previene el auto-cruce y genera trades. En un diseño de **un único escritor** ese costo se serializa, así que fija el techo del shard:
+
+```
+techo de un shard = 1 / S          ρ = λ · S
+```
+
+Medir la capacidad con S de microsegundos mide un `TreeMap`, no un motor. Como no hay estimación del costo real, `BusinessLogicModel` lo vuelve un **parámetro barrido** (`make sweep-service`) y el entregable deja de ser un número suelto para ser un **presupuesto de tiempo de servicio**, falsable sin conocer todavía la lógica de negocio.
+
+El modelo respeta dos reglas: **quema CPU en vez de dormir** (un `sleep` devuelve el núcleo, no ensucia la caché ni compite con gRPC, y su granularidad en la JVM es de milisegundos) y **muestrea de una distribución sesgada** en vez de una constante, porque el costo real depende de los datos —una orden que no cruza es barata, una que barre cinco niveles es cara— y esa varianza (Cs²) entra en Kingman igual que la del arribo. La distribución es una mezcla fija de tres clases (90 % ×1, 9 % ×6, 1 % ×30), Cs² = 3,34, acotada por construcción en ~17× la media. Es deliberadamente una sola perilla: sin estimación del costo real, exponer la forma de la distribución sería precisión falsa.
+
+Resultado medido (ver `evidencia-corridas.md`): **el presupuesto es ≈ 8,5 ms por orden** con todo el pico contractual concentrado en una sola partición.
 
 ## 7. Despliegue
 

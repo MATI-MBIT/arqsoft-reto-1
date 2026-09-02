@@ -14,3 +14,9 @@ Con la topología arriba (`docker compose -f deploy/docker-compose.yml up --buil
 `-e TARGET=host:puerto` apunta a otro router. Los percentiles del generador se contrastan con los que cada shard loguea cada 10 s (HdrHistogram interno).
 
 El modelo de carga es **abierto** (tasa de llegada objetivo), no N usuarios esperando respuesta: el modelo cerrado subestima el p95/p99 bajo saturación (*coordinated omission*).
+
+Sobre ese modelo abierto, el script añade **arribo estocástico**: k6 arranca las iteraciones equiespaciadas (un metrónomo), así que cada una se desplaza un tiempo exponencial independiente antes de emitir el RPC. Sin eso la varianza del arribo es 0, el ring buffer nunca acumula y los percentiles salen optimistas. Ajustable con `-e JITTER_FACTOR=n` (default 8; `0` restaura el arribo periódico para comparar).
+
+Los 36 símbolos están elegidos para que `floorMod(String.hashCode, N)` reparta exacto: **18/18 con N=2, 9/9/9/9 con N=4**. Si cambias la lista, reverifica el reparto — con el conjunto anterior de 6 símbolos un shard quedaba ocioso con N=4.
+
+Además de `p(95)<200` y `orders_rejected_backpressure`, F1 y F2 exigen **`dropped_iterations == 0`**: una iteración descartada es carga que nunca se aplicó, y vuelve la corrida no concluyente.

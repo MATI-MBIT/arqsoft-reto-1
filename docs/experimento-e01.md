@@ -6,7 +6,9 @@ nav_order: 2
 # E01 — Validar el patrón LMAX (motor en memoria con un único escritor) para el emparejamiento
 
 **Reto 1: Desempeño · ARTI4109 · Pestaña Experiments de Helix**
-Estado: **Ejecutado y cerrado** · Espejo de Helix actualizado el 1 de septiembre de 2026 (corridas del 30 de agosto).
+Estado: **Ejecutado · conclusiones parcialmente provisionales** · Espejo de Helix actualizado el 2 de septiembre de 2026.
+
+> Las corridas F1–F4 del 30 de agosto se ejecutaron con arribo **uniforme** (ver refinamiento 5) y con un costo por orden de juguete (~13 µs, ver refinamiento 3): sus percentiles son **cotas optimistas** y su techo por shard es una propiedad del `TreeMap`. El barrido de tiempo de servicio del 2 de septiembre sí es firme. La iteración no cierra hasta repetir F1–F4 con el generador corregido.
 
 ## El experimento de un vistazo
 
@@ -31,7 +33,7 @@ flowchart LR
     H2 -.-> H2b --> F4
     F1 --> V1(["✅ Confirmada\np95 = 9,64 ms · margen 20×"])
     F2 --> V2(["✅ Confirmada\np95 = 4,91 ms · margen 40×"])
-    F4 --> V3(["❌ Refutada hasta 12× el pico:\ntecho > 1.000 órdenes/s por shard"])
+    F4 --> V3(["🔶 No se manifestó a tasas contractuales;\nreformulada como presupuesto: S ≤ ~8,5 ms"])
 ```
 
 ---
@@ -99,25 +101,36 @@ Patrón LMAX Architecture (Disruptor): procesador de eventos secuencial con libr
 ```mermaid
 flowchart LR
     subgraph S0["matching-shard-0 · 1 hilo escritor"]
-      B0["Libro BANCOLOMBIA"]
-      B1["Libro ISA"]
-      B2["Libro NUTRESA"]
+      B0["Libro BCOLOMBIA"]
+      B1["Libro NUTRESA"]
+      B2["Libro PROMIGAS"]
     end
     subgraph S1["matching-shard-1 · 1 hilo escritor"]
       B3["Libro ECOPETROL"]
-      B4["Libro GRUPOSURA"]
+      B4["Libro ISA"]
       B5["Libro CEMARGOS"]
     end
     O["Orden: symbol = ISA"] --> R{"router: hash % 2"}
-    R -- "BANCOLOMBIA · ISA · NUTRESA" --> S0
-    R -- "ECOPETROL · GRUPOSURA · CEMARGOS" --> S1
+    R -- "18 símbolos: BCOLOMBIA · NUTRESA · PROMIGAS …" --> S0
+    R -- "18 símbolos: ECOPETROL · ISA · CEMARGOS …" --> S1
 ```
+> *Nota sobre el diagrama de sharding:* el reparto mostrado es el que produce realmente `floorMod(String.hashCode(símbolo), 2)` sobre los 36 nemotécnicos del generador, verificado con el hash (18/18 con N=2, 9/9/9/9 con N=4). Una versión anterior de este diagrama ubicaba tres símbolos en el shard equivocado.
 
 Tácticas de latencia: mantener los datos del camino crítico en memoria, reducir overhead evitando bloqueos y contención, mover journaling y notificación a etapas asíncronas. Tácticas de escalabilidad: particionamiento por activo (el throughput total escala agregando shards) y cola acotada con backpressure en la ingesta (se prefiere frenar la entrada antes que prometer una latencia incumplible). Alternativas descartadas: pool de workers con colas bloqueantes (reintroduce la contención), locks de grano fino por nivel de precio (deadlocks y latencia impredecible), PostgreSQL con SELECT FOR UPDATE (se mantiene como línea base de comparación), modelo de actores (overhead de mailbox), bloqueo distribuido (salto de red en el camino crítico).
 
 ### Experiment Design
 
-PoC mínimo en una sola máquina (mínimo 8 vCPU/16 GB, ideal 12+/32), todo Java 21 sobre Docker Compose —sin Kubernetes ni broker—: generador k6 + xk6-grpc (modelo abierto de tasa de llegada, evita coordinated omission) → servicio de ingesta gRPC/Protobuf con router de sharding hash(símbolo) % N y cola acotada → N motores LMAX (Disruptor 4.x, libro en memoria por activo, journaling asíncrono a archivo). Aislamiento por cpuset: núcleos dedicados al motor, separados del generador, para no contaminar los percentiles. Precalentamiento sin medir (estabilizar JIT y GC).
+PoC mínimo en una sola máquina (mínimo 8 vCPU/16 GB, ideal 12+/32), todo Java 21 sobre Docker Compose —sin Kubernetes ni broker—: generador k6 con gRPC nativo (`k6/net/grpc`, k6 ≥ 0.49 — no requiere xk6), en modelo abierto de tasa de llegada con desplazamiento exponencial por iteración → servicio de ingesta gRPC/Protobuf con router de sharding hash(símbolo) % N y cola acotada → N motores LMAX (Disruptor 4.0.0, libro en memoria por activo). Precalentamiento sin medir (estabilizar JIT y GC).
+
+**Diferencias entre el diseño y lo construido** — declaradas para no atribuir al PoC alcance que no tiene:
+
+| Elemento del diseño | Estado en el PoC |
+|---|---|
+| Journaling asíncrono a archivo | ❌ **no implementado**: no hay journaling de ningún tipo. La cláusula de H1 sobre sacarlo del camino crítico **no fue puesta a prueba** |
+| Aislamiento por `cpuset` | ❌ **no aplicado**: las líneas están comentadas en el compose y en macOS Docker corre en una VM. Con ello, la «mechanical sympathy» de datos calientes en un núcleo dedicado tampoco se verificó |
+| JFR para pausas de GC | ❌ no configurado: `JAVA_OPTS` solo lleva ZGC y heap |
+| CPU por proceso | ❌ no se recolecta |
+| Exportación a Prometheus/Grafana | ❌ no implementada: las curvas salen de la salida de k6 y del log del motor |
 
 El camino de una orden a través del montaje (los dos relojes de la medición marcados):
 
@@ -142,8 +155,8 @@ sequenceDiagram
 
 Corridas:
 
-- **F1 — Baseline (ASR-02):** 1.000 emp/min estocásticos (≈17/s) repartidos en ≥3 activos, 10–15 min; criterio p95 ≤ 200 ms.
-- **F2 — Rampa transitoria (ASR-03):** rampa de 1.000 a 5.000 emp/min en pocos minutos y sostenida hasta 30 min repartida entre activos, corrida con N=2 y N=4 shards; criterio: p95 ≤ 200 ms durante toda la ventana y backlog de la cola sin crecimiento descontrolado.
+- **F1 — Baseline (ASR-02):** 1.000 emp/min (≈17/s) con **arribo estocástico** —tiempo entre llegadas exponencial, no equiespaciado— repartidos en 36 activos que el hash del router balancea 18/18 (N=2) y 9/9/9/9 (N=4), 10–15 min; criterio p95 ≤ 200 ms, 0 rechazos y 0 iteraciones descartadas.
+- **F2 — Rampa transitoria (ASR-03):** rampa de 1.000 a 5.000 emp/min en pocos minutos y sostenida hasta 30 min repartida entre activos; prevista con N=2 y N=4 shards, **ejecutada solo con N=2** (la comparación se descartó razonadamente, ver Results; `make compare-sharding` la deja disponible). Criterio: p95 ≤ 200 ms durante toda la ventana y backlog de la cola sin crecimiento descontrolado.
 - **F3 — Retorno a régimen:** bajar a 1.000/min y verificar que el backlog drena y el p95 vuelve al valor de F1 (la escalabilidad exigida es transitoria, no permanente).
 - **F4 — Partición caliente (exploratoria, sin criterio binario):** mismo perfil de F2 con el 100 % del tráfico en un solo activo, para encontrar el punto de quiebre de un shard.
 
@@ -154,7 +167,7 @@ flowchart LR
     P["2 min\n17/s\nprecalentamiento"] --> RA["2 min\nrampa 17→84/s\nevento de mercado"] --> PK["30 min\n84/s sostenidos\npico Ambiente B"] --> D["1 min\nrampa 84→17/s"] --> F3["5 min\n17/s\nF3: drenar y volver a régimen"]
 ```
 
-Métricas: latencia arribo→materialización p50/p95/p99/p99.9 medida en el generador y contrastada con HdrHistogram interno del motor; throughput real vs. objetivo; profundidad de cola/backlog; tasa de rechazo (backpressure); pausas de GC (JFR); CPU por proceso. Los thresholds de k6 marcan la corrida como fallida si p95 > 200 ms en vivo.
+Métricas: latencia arribo→materialización p50/p95/p99/p99.9 medida en el generador y contrastada con HdrHistogram interno del motor; throughput real vs. objetivo; **descomposición de la latencia interna en espera (cola del ring buffer) y servicio (matching + modelo de negocio)**, que distingue «shardear más» de «abaratar la orden»; tasa de rechazo (backpressure); iteraciones descartadas por el generador. *No recolectadas pese a estar previstas: pausas de GC (JFR) y CPU por proceso* — su ausencia deja sin evidencia directa la cláusula de H2 sobre no exigir más de un núcleo por partición. Los thresholds de k6 marcan la corrida como fallida si p95 > 200 ms en vivo.
 
 Limitación declarada — **el techo de un shard depende del costo por orden**: `OrderBook.match()` es un cruce sobre un `TreeMap` (~13 µs medidos) y el PoC no implementa validación, riesgo, tipos de orden, comisiones ni generación de trades. Como en un único escritor ese costo se serializa (techo = 1/S), cualquier cifra de capacidad medida con S de microsegundos es un artefacto del juguete. El experimento lo trata como parámetro barrido (`BusinessLogicModel` + `make sweep-service`) y reporta un **presupuesto**: el patrón sostiene el ASR en la peor distribución mientras S ≤ ~8,5 ms.
 
@@ -162,9 +175,9 @@ Limitación declarada: el tráfico corre por loopback —no representa la red de
 
 ### Experiment planning
 
-**Required resources:** Java 21 + LMAX Disruptor 4.x + gRPC/Protobuf; Docker Compose (sin Kubernetes ni broker); k6 con extensión xk6-grpc (compilado con xk6) como generador de carga en modelo abierto, con thresholds en vivo y exportación a Prometheus/Grafana para las curvas del informe; HdrHistogram y JFR para percentiles y pausas de GC; 1 máquina de 8 vCPU/16 GB (ideal 12 vCPU/32 GB) con núcleos aislados por cpuset; scripts de orquestación y análisis.
+**Required resources** *(lo efectivamente usado; entre paréntesis lo previsto que no se usó)*: Java 21 + LMAX Disruptor 4.0.0 + gRPC/Protobuf; Docker Compose (sin Kubernetes ni broker); **k6 ≥ 0.49 con gRPC nativo** —no hizo falta compilar xk6— como generador en modelo abierto con thresholds en vivo; HdrHistogram para los percentiles internos del motor; 1 máquina de 8 vCPU/16 GB o más; `Makefile` + `run-e2e.sh` como orquestación. *(Previstos y no usados: exportación a Prometheus/Grafana —las curvas salen de la salida de k6 y del log del motor—, JFR para pausas de GC, y núcleos aislados por cpuset.)*
 
-**Architecture elements involved:** Servicio de ingesta gRPC con router de sharding por símbolo (hash % N) y cola acotada con backpressure; N shards del motor de emparejamiento (LMAX, libro en memoria por activo, un escritor por partición); journaling asíncrono (stub a archivo); generador de carga externo. Excluidos por no incidir en ASR-02/03: fan-out de notificaciones, proyecciones CQRS, persistencia, broker y autoescalado (declarados como limitación del PoC). Vistas afectadas: funcional y concurrencia.
+**Architecture elements involved:** Servicio de ingesta gRPC con router de sharding por símbolo (hash % N) y cola acotada con backpressure; N shards del motor de emparejamiento (LMAX, libro en memoria por activo, un escritor por partición); generador de carga externo. **El journaling asíncrono forma parte del diseño pero no del PoC** (ver la tabla de diferencias arriba). Excluidos por no incidir en ASR-02/03: fan-out de notificaciones, proyecciones CQRS, persistencia, broker y autoescalado (declarados como limitación del PoC). Vistas afectadas: funcional y concurrencia.
 
 **Estimated effort:** 2 personas × 1 semana (≈ 40 horas-persona): 2 días ingesta gRPC + router de sharding + motor LMAX; 1 día generador k6 e instrumentación; 1 día corridas F1–F4; 1 día análisis, informe y decisión (Paso 8).
 
@@ -195,9 +208,11 @@ xychart-beta
 
 **Links & evidence:** [Repositorio](https://github.com/MATI-MBIT/arqsoft-reto-1) · [Sitio de documentación](https://mati-mbit.github.io/arqsoft-reto-1/) · [Evidencia de corridas](https://mati-mbit.github.io/arqsoft-reto-1/evidencia-corridas.html) (resumen + salidas crudas de k6).
 
-**Conclusion:** **H1 y H2 confirmadas** con márgenes de 20–40×; **H2b refutada en todo el rango explorado** — la partición caliente, la hipótesis de mayor riesgo del diseño y criterio de parada de la iteración, no degrada el servicio ni a 12× el pico contractual concentrado en una sola partición: pasa de "amenaza al SLA" a "límite de capacidad medido" (techo > 1.000 órdenes/s por shard como cota inferior).
+**Conclusion:** **H1 y H2 se cumplen con márgenes amplios** en las corridas ejecutadas — con la salvedad de que esas corridas usaron arribo uniforme y son cotas optimistas (refinamiento 5), y de que ninguna evidencia respalda todavía la cláusula «sin exigir más de un núcleo por partición» de H2, porque no se midió CPU por proceso.
 
-**Architectural Decision (Paso 8 de ADD):** **ADOPTAR** LMAX (libro en memoria, único escritor por partición sobre ring buffer) + sharding determinístico por activo + cola acotada con backpressure como arquitectura del motor. La Iteración 1 cierra: su criterio de parada quedó resuelto afirmativamente. Deuda y trabajo futuro: repetir el diseño en el banco de 3 nodos (TEC-2) con red real; re-evaluar la estrategia de espera del Disruptor (Blocking en el PoC) con datos; profundizar el techo del shard solo si el negocio proyecta volúmenes de otro orden de magnitud; siguiente experimento candidato: E02 — fan-out de notificaciones (ASR-04).
+**H2b no se refuta: se reformula.** La partición caliente no degradó el servicio a tasas contractuales, pero el techo de un shard es 1/S y las corridas lo midieron con un `match()` de ~13 µs. Con el costo por orden como parámetro, el barrido del 2 de septiembre acota el resultado a un **presupuesto**: el patrón sostiene el ASR con todo el pico en una sola partición mientras el costo por orden se mantenga **bajo ~8,5 ms**; por encima, H2b se manifiesta. La hipótesis de mayor riesgo pasa de "amenaza al SLA" a **"condición verificable contra la lógica de negocio real"**.
+
+**Architectural Decision (Paso 8 de ADD):** **ADOPTAR** LMAX (libro en memoria, único escritor por partición sobre ring buffer) + sharding determinístico por activo + cola acotada con backpressure como arquitectura del motor. La Iteración 1 **no cierra todavía**: la decisión de adoptar es firme por el mecanismo y los órdenes de magnitud, pero el criterio de parada queda condicionado a (a) repetir F1–F4 con el generador corregido y (b) verificar el presupuesto de ~8,5 ms contra el costo real de la lógica de negocio. Deuda y trabajo futuro: repetir el diseño en el banco de 3 nodos (TEC-2) con red real; re-evaluar la estrategia de espera del Disruptor (Blocking en el PoC) con datos; profundizar el techo del shard solo si el negocio proyecta volúmenes de otro orden de magnitud; siguiente experimento candidato: E02 — fan-out de notificaciones (ASR-04).
 
 ---
 

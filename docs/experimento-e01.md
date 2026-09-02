@@ -31,8 +31,8 @@ flowchart LR
     A2 --> H1 --> F1
     A3 --> H2 --> F2
     H2 -.-> H2b --> F4
-    F1 --> V1(["✅ Confirmada\np95 = 7,55 ms · margen 26×"])
-    F2 --> V2(["✅ Confirmada\np95 = 4,61 ms · margen 43×"])
+    F1 --> V1(["✅ Confirmada\np95 = 7,54 ms · margen 27×"])
+    F2 --> V2(["✅ Confirmada\np95 = 4,58 ms · margen 44×"])
     F4 --> V3(["🔶 No se manifestó a tasas contractuales;\nreformulada como presupuesto: S ≤ ~8,5 ms"])
 ```
 
@@ -185,16 +185,16 @@ Limitación declarada: el tráfico corre por loopback —no representa la red de
 
 ## Pestaña Results & analysis
 
-**Results** (582.637 órdenes en 6 corridas del 2 de septiembre, 100 % procesadas, 0 rechazos — detalle y salidas crudas en la [evidencia de corridas](evidencia-corridas.html)):
+**Results** (615.714 órdenes en 6 corridas del 2 de septiembre, 100 % procesadas, 0 rechazos, 0 violaciones de routing — detalle y salidas crudas en la [evidencia de corridas](evidencia-corridas.html)):
 
 | Corrida | Carga | p95 | Veredicto |
 |---|---|---|---|
-| F1 baseline | 17/s repartidos en 36 símbolos | 7,55 ms | ✅ margen ≈ 26× |
-| F2+F3 rampa+pico+retorno | 17→84/s repartidos | 4,61 ms | ✅ margen ≈ 43× |
-| F4 contractual | 84/s en 1 símbolo | 3,30 ms | sin degradación |
-| F4-explore | 250 / 500 / 1000 por s en 1 símbolo | 2,90 / 2,17 / 1,43 ms | **techo no alcanzado** |
+| F1 baseline | 17/s repartidos en 36 símbolos | 7,54 ms | ✅ margen ≈ 27× |
+| F2+F3 rampa+pico+retorno | 17→84/s repartidos | 4,58 ms | ✅ margen ≈ 44× |
+| F4 contractual | 84/s en 1 símbolo | 4,00 ms | sin degradación |
+| F4-explore | 250 / 500 / 1000 por s en 1 símbolo | 3,54 / 2,03 / 1,20 ms | **techo no alcanzado** |
 
-Las fases oficiales pasaron sus cuatro umbrales: p95, 0 rechazos, **0 iteraciones descartadas** y **0 violaciones de routing** sobre 179.670 órdenes — esto último demuestra empíricamente el aislamiento del sharding (recomendación 2). **F3 quedó evidenciado con número propio**: la espera interna del motor vuelve a 138 µs contra los 200 µs de F1, es decir el backlog drena por debajo del baseline.
+Las fases oficiales pasaron sus cuatro umbrales: p95, 0 rechazos, **0 iteraciones descartadas** y **0 violaciones de routing** sobre 179.669 órdenes — esto último demuestra empíricamente el aislamiento del sharding (recomendación 2). **F3 quedó evidenciado con número propio**: la espera interna vuelve a 137 µs contra los 203 µs de F1, es decir el backlog drena por debajo del baseline. Y cada fase publica ahora sus **percentiles internos acumulados** sobre toda su población de órdenes, comparables cifra a cifra con los de k6.
 
 El hallazgo central en un gráfico — **la latencia mejora al subir la carga** (más ráfaga → más eventos por pasada del único escritor y datos calientes en caché → menor costo amortizado por evento; lo contrario de un sistema con locks):
 
@@ -203,24 +203,24 @@ xychart-beta
     title "p95 (ms) según la tasa de llegada — menor es mejor · presupuesto: 200 ms"
     x-axis ["17/s", "84/s", "84/s (1 símbolo)", "250/s (1 símbolo)", "500/s (1 símbolo)", "1000/s (1 símbolo)"]
     y-axis "p95 en ms" 0 --> 8
-    bar [7.55, 4.61, 3.30, 2.90, 2.17, 1.43]
+    bar [7.54, 4.58, 4.00, 3.54, 2.03, 1.20]
 ```
 
-Y el mecanismo, aislado por primera vez **dentro del motor** gracias a la descomposición `total = espera + servicio` — el costo de procesar una orden cae 45× sin cambiar una línea de código:
+Y el mecanismo, aislado por primera vez **dentro del motor** gracias a la descomposición `total = espera + servicio` — el costo de procesar una orden cae al menos 27× sin cambiar una línea de código:
 
 ```mermaid
 xychart-beta
-    title "Costo por orden dentro del shard (servicio p50, µs) — mechanical sympathy medida"
+    title "Costo por orden dentro del shard (servicio p95 acumulado, µs)"
     x-axis ["17/s · 18 libros", "84/s · 18 libros", "84/s · 1 libro", "250/s", "500/s", "1000/s"]
-    y-axis "servicio p50 en µs" 0 --> 95
-    bar [90, 25, 13, 9, 4, 2]
+    y-axis "servicio p95 en µs" 0 --> 90
+    bar [84, 35, 18, 15, 7, 3]
 ```
 
-**Analysis of results:** el patrón es coherente en las seis corridas: latencia decreciente con la carga, backpressure jamás activado (0 rechazos), y la doble medición k6/HdrHistogram ahora sí registrada en ambos relojes. Esa doble medición arroja el dato que recontextualiza todo lo demás: **en F1 el motor aporta 272 µs de los 7.550 µs que ve el cliente** — el 96 % del tiempo es transporte (gRPC, router y la red virtualizada de Docker en macOS), no el patrón. Los valores absolutos, por tanto, miden sobre todo el montaje; el comportamiento del patrón y los órdenes de magnitud de los márgenes sí se sostienen.
+**Analysis of results:** el patrón es coherente en las seis corridas: latencia decreciente con la carga, backpressure jamás activado (0 rechazos), y la doble medición k6/HdrHistogram registrada en ambos relojes **con el mismo estadístico** — percentiles de población a los dos lados, de modo que su resta es una atribución válida. El resultado recontextualiza todo lo demás: **el motor aporta el 3,7 % de la latencia que ve el cliente**, y la proporción se mantiene constante en las seis fases (272 µs de p95 interno contra 7,54 ms extremo a extremo en F1). El 96 % restante es transporte: gRPC, el router y la red virtualizada de Docker en macOS. Los valores absolutos miden sobre todo el montaje; lo que se sostiene del patrón es su contribución propia y el presupuesto que deja libre.
 
-Dentro del motor, la espera domina sobre el trabajo a tasa baja: a 17/s, 200 de los 272 µs (**74 %**) son el costo de despertar el hilo matcher dormido bajo `BlockingWaitStrategy`. Eso convierte la deuda de decisión sobre la estrategia de espera en la palanca de latencia más grande que queda en el motor.
+Dentro del motor, la espera domina sobre el trabajo a tasa baja: a 17/s, 207 de los 272 µs (**76 %**) son el costo de despertar el hilo matcher dormido bajo `BlockingWaitStrategy`. Eso convierte la deuda de decisión sobre la estrategia de espera en la palanca de latencia más grande que queda en el motor.
 
-A **1.000 órdenes/s el instrumento saturó antes que el motor**: el generador descartó 337 iteraciones mientras el shard registraba su mejor total p95 de toda la serie (44 µs). El techo del shard sigue sin alcanzarse, y ahora hay evidencia directa de dónde está el límite del montaje. La comparación N=2 vs N=4 bajo estrés se descartó razonadamente por la misma razón; la aditividad entre shards queda argumentada por construcción (no comparten nada) y el aislamiento, ahora, verificado en vivo.
+El acumulado revela además **atascos aislados de cientos de milisegundos** que ninguna ventana individual mostraba: en F2 una orden tardó 300 ms en procesarse y otra esperó 375 ms en el ring buffer. Son rarísimos —el p99.9 se queda en 1,74 ms— pero un solo evento así incumple el SLA por sí mismo, y **no se pueden atribuir a GC, JIT o contención del host sin JFR**, declarado en el diseño y no implementado. El shard sostuvo 1.000 órdenes/s sin que el generador se quedara atrás, así que el techo no lo alcanzó ni el motor ni el instrumento. La comparación N=2 vs N=4 bajo estrés se descartó razonadamente; la aditividad entre shards queda argumentada por construcción (no comparten nada) y el aislamiento, ahora, verificado en vivo.
 
 **Links & evidence:** [Repositorio](https://github.com/MATI-MBIT/arqsoft-reto-1) · [Sitio de documentación](https://mati-mbit.github.io/arqsoft-reto-1/) · [Evidencia de corridas](https://mati-mbit.github.io/arqsoft-reto-1/evidencia-corridas.html) (resumen + salidas crudas de k6).
 

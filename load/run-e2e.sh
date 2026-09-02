@@ -23,23 +23,37 @@ SMOKE_FLAG=""
 
 FAILED=()
 
-# Percentiles internos del shard de la fase (total | espera | servicio). Es la
-# contraparte de la medición de k6: su contraste separa el costo del patrón del
-# costo de transporte. Hay que capturarlos ANTES de bajar la topología — al
-# destruir los contenedores se pierden sus logs.
+# Topología limpia por fase. Es requisito de la medición, no higiene: el shard
+# publica sus percentiles ACUMULADOS al recibir SIGTERM, y solo son los de ESTA
+# fase si el proceso vivió exactamente esta fase. Además evita que el estado del
+# libro de una fase contamine la siguiente.
+fresh_topology() {
+  $COMPOSE --profile n4 down --remove-orphans >/dev/null 2>&1 || true
+  $COMPOSE up -d >/dev/null
+  sleep 20
+}
+
+# Percentiles internos del shard (total | espera | servicio), contraparte de la
+# medición de k6: su contraste separa el costo del patrón del del transporte.
+# `stop` dispara el hook de cierre de la JVM, que emite la línea ACUMULADO con
+# los percentiles VERDADEROS sobre toda la población de órdenes de la fase.
+# Los logs se capturan antes del `down`, que destruye los contenedores.
 capture_shard_logs() {
   local name="$1" since="$2"
+  $COMPOSE stop >/dev/null 2>&1 || true
   $COMPOSE logs --no-color --since "$since" 2>/dev/null \
-    | grep -E "shard=[0-9]+ n=" > "$OUT/$name-shard.log" || true
+    | grep -E "ACUMULADO|shard=[0-9]+ n=" > "$OUT/$name-shard.log" || true
+  grep "ACUMULADO" "$OUT/$name-shard.log" 2>/dev/null | sed 's/^/  /' || true
 }
 
 run_phase() {
   local name="$1"; shift
-  local since; since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo ""
   echo "════════════════════════════════════════════════════"
   echo "  Fase: $name"
   echo "════════════════════════════════════════════════════"
+  fresh_topology
+  local since; since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   ( cd "$ROOT/load/k6" && k6 run $SMOKE_FLAG "$@" --summary-export="$OUT/$name.json" poc.js ) 2>&1 | tee "$OUT/$name.txt"
   local rc=${PIPESTATUS[0]}
   capture_shard_logs "$name" "$since"
@@ -50,11 +64,8 @@ run_phase() {
 
 echo "== E2E experimento E01 · modo=$MODE · resultados en $OUT =="
 
-# 1. Topología limpia (N=2)
-$COMPOSE --profile n4 down --remove-orphans >/dev/null 2>&1 || true
-$COMPOSE up --build -d
-echo "Esperando arranque de la topología (JVMs)..."
-sleep 20
+# 1. Construir imágenes una vez; cada fase levanta su propia topología limpia.
+$COMPOSE build
 
 # 2. Fases oficiales (con thresholds: fallan la corrida si p95>200ms o hay rechazos)
 run_phase f1 -e PHASE=f1
@@ -65,11 +76,12 @@ run_phase f4 -e PHASE=f4
 
 # 4. Exploración del techo de un shard (siempre corta)
 for peak in 250 500 1000; do
-  since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo ""
   echo "════════════════════════════════════════════════════"
   echo "  Fase: f4-explore @ ${peak}/s"
   echo "════════════════════════════════════════════════════"
+  fresh_topology
+  since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   ( cd "$ROOT/load/k6" && k6 run -e SMOKE=1 -e PHASE=f4 -e PEAK="$peak" \
       --summary-export="$OUT/f4-explore-$peak.json" poc.js ) 2>&1 | tee "$OUT/f4-explore-$peak.txt"
   capture_shard_logs "f4-explore-$peak" "$since"

@@ -36,9 +36,22 @@ public final class EngineMain {
         int ringSize = Integer.parseInt(env("RING_SIZE", "16384"));
 
         // Histogramas de latencia interna, en microsegundos. Total = espera + servicio.
+        //
+        // Dos niveles a propósito:
+        //  · Recorder  — ventana de 10 s. Sirve para ver la EVOLUCIÓN (cuándo se
+        //    degrada, si drena el backlog), pero sus percentiles son de la ventana.
+        //  · Histogram acumulado — suma de todas las ventanas. De aquí salen los
+        //    percentiles VERDADEROS sobre toda la población de órdenes, que son los
+        //    únicos comparables con los de k6. Promediar los p95 por ventana NO da
+        //    un p95: da la media de una muestra de percentiles, un estadístico
+        //    distinto que oculta la dispersión entre ventanas.
         Recorder latencyRecorder = new Recorder(3);
         Recorder waitRecorder = new Recorder(3);
         Recorder serviceRecorder = new Recorder(3);
+        Histogram totalCumulative = new Histogram(3);
+        Histogram waitCumulative = new Histogram(3);
+        Histogram serviceCumulative = new Histogram(3);
+        Object drainLock = new Object();
 
         BusinessLogicModel businessLogic = BusinessLogicModel.fromEnv();
 
@@ -79,9 +92,17 @@ public final class EngineMain {
             return t;
         });
         reporter.scheduleAtFixedRate(() -> {
-            Histogram total = latencyRecorder.getIntervalHistogram();
-            Histogram wait = waitRecorder.getIntervalHistogram();
-            Histogram service = serviceRecorder.getIntervalHistogram();
+            Histogram total, wait, service;
+            // getIntervalHistogram() no admite llamadas concurrentes: el hilo del
+            // reporte y el de cierre compiten por él.
+            synchronized (drainLock) {
+                total = latencyRecorder.getIntervalHistogram();
+                wait = waitRecorder.getIntervalHistogram();
+                service = serviceRecorder.getIntervalHistogram();
+                totalCumulative.add(total);
+                waitCumulative.add(wait);
+                serviceCumulative.add(service);
+            }
             if (total.getTotalCount() == 0) {
                 return;
             }
@@ -107,7 +128,37 @@ public final class EngineMain {
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             server.shutdown();
-            disruptor.shutdown();
+            disruptor.shutdown(); // drena el ring: al volver, todo evento fue procesado
+
+            // Última ventana pendiente + resumen ACUMULADO de la corrida completa.
+            // Estos sí son percentiles de la población entera, comparables con los
+            // de k6. Requiere que el proceso viva exactamente una fase.
+            synchronized (drainLock) {
+                totalCumulative.add(latencyRecorder.getIntervalHistogram());
+                waitCumulative.add(waitRecorder.getIntervalHistogram());
+                serviceCumulative.add(serviceRecorder.getIntervalHistogram());
+            }
+            if (totalCumulative.getTotalCount() == 0) {
+                return;
+            }
+            log.info("ACUMULADO shard={} n={}"
+                            + " total p50={}us p95={}us p99={}us p99.9={}us max={}us"
+                            + " | espera p50={}us p95={}us p99.9={}us max={}us"
+                            + " | servicio p50={}us p95={}us p99.9={}us max={}us",
+                    shardId, totalCumulative.getTotalCount(),
+                    totalCumulative.getValueAtPercentile(50.0),
+                    totalCumulative.getValueAtPercentile(95.0),
+                    totalCumulative.getValueAtPercentile(99.0),
+                    totalCumulative.getValueAtPercentile(99.9),
+                    totalCumulative.getMaxValue(),
+                    waitCumulative.getValueAtPercentile(50.0),
+                    waitCumulative.getValueAtPercentile(95.0),
+                    waitCumulative.getValueAtPercentile(99.9),
+                    waitCumulative.getMaxValue(),
+                    serviceCumulative.getValueAtPercentile(50.0),
+                    serviceCumulative.getValueAtPercentile(95.0),
+                    serviceCumulative.getValueAtPercentile(99.9),
+                    serviceCumulative.getMaxValue());
         }));
 
         server.awaitTermination();

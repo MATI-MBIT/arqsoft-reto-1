@@ -31,6 +31,14 @@ const SYMBOLS = PHASE === 'f4'
 
 const rejected = new Counter('orders_rejected_backpressure');
 
+// Verificación empírica del aislamiento del sharding (retroalimentación 01-sep):
+// cada respuesta trae el shard_id que la procesó; comprobamos que un mismo símbolo
+// sea respondido SIEMPRE por el mismo shard. El mapa es por VU (los VUs de k6 no
+// comparten estado), pero como el enrutamiento es determinístico, una sola
+// violación en cualquier VU basta para delatar un reparto inconsistente.
+const routingViolations = new Counter('shard_routing_violations');
+const shardBySymbol = {};
+
 function scenarioFor(phase) {
   if (phase === 'f1') {
     return {
@@ -77,6 +85,8 @@ export const options = {
           // Criterio de éxito de E01: p95 ≤ 200 ms (p99/p99.9 se observan, no deciden)
           grpc_req_duration: ['p(95)<200'],
           orders_rejected_backpressure: ['count==0'],
+          // Aislamiento del sharding: cada símbolo, siempre el mismo shard
+          shard_routing_violations: ['count==0'],
         },
   summaryTrendStats: ['avg', 'p(50)', 'p(95)', 'p(99)', 'p(99.9)', 'max'],
 };
@@ -110,7 +120,17 @@ export default function () {
     'status gRPC OK': (r) => r && r.status === grpc.StatusOK,
   });
 
-  if (ok && response.message.status === 'REJECTED') {
-    rejected.add(1);
+  if (ok) {
+    if (response.message.status === 'REJECTED') {
+      rejected.add(1);
+    }
+    const sid = response.message.shardId;
+    if (sid !== undefined && sid !== null) {
+      if (shardBySymbol[symbol] === undefined) {
+        shardBySymbol[symbol] = sid;
+      } else if (shardBySymbol[symbol] !== sid) {
+        routingViolations.add(1);
+      }
+    }
   }
 }

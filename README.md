@@ -47,7 +47,8 @@ make smoke     # humo de ~1 min para verificar el montaje
 | **`make e2e`** | **El experimento completo en un comando** (~1h40m): up → F1 → F2+F3 → F4 → F4-explore → down; salidas y JSON por fase en `load/k6/results/<timestamp>/`, sale con error si alguna fase oficial incumple |
 | **`make e2e-smoke`** | El mismo ciclo en corto (~25 min): **la regresión a correr tras cada cambio de implementación** |
 | `make build` / `make test` / `make clean` | Ciclo Gradle |
-| `make up` / `make up-n4` | Topología con 2 o 4 shards |
+| `make up` / `make up-n4` / `make up-n1` | Topología con 2, 4 o 1 shard(s) |
+| `make f2-n1` | Perfil F2 corto sobre 1 shard: evidencia del **N mínimo** que satisface el contrato |
 | `make smoke` / `make smoke-f2` | Verificaciones cortas del montaje |
 | `make f1` | F1 — baseline ASR-02 (12 min, p95 < 200 ms) |
 | `make f2` | F2+F3 — rampa, pico de 30 min y retorno a régimen (ASR-03) |

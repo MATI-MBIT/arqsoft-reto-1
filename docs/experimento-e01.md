@@ -40,7 +40,9 @@ flowchart LR
 
 ### Design Hypothesis
 
-**H1 — Latencia (ASR-02):** si el motor de emparejamiento implementa el patrón LMAX —libro de órdenes en memoria por activo, un único hilo escritor por partición (single writer) alimentado por un ring buffer (Disruptor), con journaling y notificación asíncronos fuera del camino crítico—, entonces la latencia de emparejamiento se mantendrá p95 ≤ 200 ms bajo 1.000 emparejamientos/min con arribo estocástico (Ambiente A), porque el procesamiento secuencial en memoria elimina bloqueos y contención y deja el costo por evento en el orden de microsegundos.
+*Redacción ajustada tras la retroalimentación del 01-sep: la hipótesis es la **apuesta de diseño** — la medida exigida vive en el escenario de calidad enlazado y no se transcribe aquí.*
+
+**H1 — Latencia (ASR-02):** si el motor de emparejamiento implementa el patrón LMAX —libro de órdenes en memoria por activo, un único hilo escritor por partición (single writer) alimentado por un ring buffer (Disruptor), con journaling y notificación asíncronos fuera del camino crítico—, entonces se cumplirá la medida del escenario Critical de latencia enlazado abajo, bajo la carga de su Ambiente A, porque el procesamiento secuencial en memoria elimina bloqueos y contención y deja el costo por evento en el orden de microsegundos.
 
 *La mecánica de H1: el camino crítico es una línea recta en memoria — nadie espera un lock, y lo lento (persistir, notificar) sale del camino:*
 
@@ -53,7 +55,7 @@ flowchart LR
     W -.->|"asíncrono, fuera\ndel camino crítico"| J["journaling +\nnotificación"]
 ```
 
-**H2 — Escalabilidad transitoria (ASR-03):** si la ingesta gRPC enruta cada orden por sharding determinístico (hash del símbolo % N) hacia N shards LMAX independientes, con cola acotada como amortiguación de ráfagas, entonces el sistema sostendrá la rampa de 1.000 a 5.000 emparejamientos/min por ventanas de hasta 30 minutos con p95 ≤ 200 ms, siempre que la carga se reparta entre varios activos, porque el throughput total crece agregando shards sin exigir más de un núcleo por partición.
+**H2 — Escalabilidad transitoria (ASR-03):** si la ingesta gRPC enruta cada orden por sharding determinístico (hash del símbolo % N) hacia N shards LMAX independientes, con cola acotada como amortiguación de ráfagas, entonces se cumplirá la medida del escenario Critical de escalabilidad enlazado abajo durante toda la ventana de pico de su Ambiente B —siempre que la carga se reparta entre varios activos—, porque el throughput total crece agregando shards sin exigir más de un núcleo por partición. La pregunta de fondo que este experimento debe responder no es solo "¿funciona con el N elegido?" sino **cuál es el N mínimo de shards** que satisface el contrato — un número que no se sabe de antemano y se halla con las corridas.
 
 *La mecánica de H2: el pico 5× se divide entre N shards que no comparten nada — cada uno recibe ~1/N de la carga, y si el pico creciera, la respuesta es sumar shards, no acelerar uno:*
 
@@ -65,7 +67,7 @@ flowchart TB
     RT -->|"~1/N de la carga"| SC["shard-N…\n+ shards = + throughput"]
 ```
 
-**H2b — Partición caliente (exploratoria, subordinada a H2):** si el pico se concentra al 100 % en un solo activo, se espera que el p95 se degrade antes de llegar a 5.000/min, porque el techo de un shard es un solo núcleo por diseño; la Fase 4 busca el punto de quiebre real, no un aprobado/reprobado.
+**H2b — Partición caliente (exploratoria, subordinada a H2):** si el pico se concentra al 100 % en un solo activo, se espera que la medida del escenario enlazado deje de cumplirse antes de alcanzar el pico de Ambiente B, porque el techo de un shard es un solo núcleo por diseño; la Fase 4 busca ese punto de quiebre real, no un aprobado/reprobado.
 
 *La mecánica de H2b — el caso donde el sharding no ayuda: un solo símbolo tiene un solo libro dueño, así que todo el pico cae en un shard y los demás miran. Como el libro es indivisible, ese único núcleo es el techo, y F4 pregunta a qué tasa se alcanza:*
 
@@ -196,6 +198,16 @@ xychart-beta
 **Architectural Decision (Paso 8 de ADD):** **ADOPTAR** LMAX (libro en memoria, único escritor por partición sobre ring buffer) + sharding determinístico por activo + cola acotada con backpressure como arquitectura del motor. La Iteración 1 cierra: su criterio de parada quedó resuelto afirmativamente. Deuda y trabajo futuro: repetir el diseño en el banco de 3 nodos (TEC-2) con red real; re-evaluar la estrategia de espera del Disruptor (Blocking en el PoC) con datos; profundizar el techo del shard solo si el negocio proyecta volúmenes de otro orden de magnitud; siguiente experimento candidato: E02 — fan-out de notificaciones (ASR-04).
 
 ---
+
+## Refinamientos tras la retroalimentación (sesión 01-sep-2026)
+
+De la revisión de experimentos con el profesor salieron cinco ajustes; su estado:
+
+1. **Hipótesis sin transcribir el ASR** *(directo al grupo)* — ✅ aplicado: H1/H2/H2b reformuladas como apuestas de diseño que referencian el escenario enlazado; la medida vive en el escenario.
+2. **Demostrar empíricamente el aislamiento del sharding** *(directo al grupo: "correlacionen IDs de entrada y salida, no solo el argumento matemático")* — ✅ instrumentado: cada respuesta gRPC trae `shard_id`, y el script k6 ahora verifica en vivo que cada símbolo sea respondido siempre por el mismo shard (contador `shard_routing_violations`, threshold `count==0` en las fases oficiales). Aplica a toda corrida futura; las corridas ya ejecutadas conservan el argumento por construcción (`floorMod(hashCode, N)` es determinístico).
+3. **Hallar el N mínimo de shards, no solo validar el N elegido** *(recomendación general más fuerte de la sesión)* — 🔶 en curso: el techo por shard medido en F4-explore (> 1.000 órdenes/s) predice que **N mínimo = 1** para el contrato; queda pendiente la corrida de evidencia directa `make f2-n1` (perfil F2 corto sobre un solo shard). Con ella, la conclusión de escalabilidad se reformula: N=1 basta para el contrato, N=2 es margen y N se dimensiona con el techo medido.
+4. **Protocolo explícito y repeticiones** *(a otros grupos)* — 🔶 parcial: el protocolo es ejecutable (`Makefile` + `run-e2e.sh`, resultados versionables por corrida); la significancia se sustenta en el volumen intra-corrida (12k–167k muestras por fase). La repetición de F1 (3–5 corridas para variabilidad entre corridas) queda como decisión abierta del equipo.
+5. **Arribo verdaderamente estocástico** *(a otros grupos, aplicable)* — ⚠️ limitación declarada: los ejecutores `*-arrival-rate` de k6 espacian los arribos de forma uniforme (a 17/s, uno cada ~59 ms); la aleatoriedad de la corrida está en símbolo, lado, precio y cantidad, no en el instante de llegada. Un arribo Poisson real requeriría otro generador o jitter artesanal; se declara como aproximación del modelo abierto y se argumenta que, con márgenes de 20–40×, la sensibilidad al patrón de llegada es baja. Decisión final pendiente de discusión del equipo.
 
 ## Notas de trazabilidad para la validación
 

@@ -90,7 +90,8 @@ Todo el ciclo de vida está en el **Makefile**: `make build`, `make up` / `make 
 
 ## 6. Metodología de medición
 
-- **Modelo abierto de llegada** (k6 `constant/ramping-arrival-rate`): la carga se expresa como tasa objetivo, no como usuarios que esperan respuesta; el modelo cerrado subestima los percentiles bajo saturación (*coordinated omission*).
+- **Modelo abierto de llegada** (k6 `constant/ramping-arrival-rate`): la carga se expresa como tasa objetivo, no como usuarios que esperan respuesta; el modelo cerrado subestima los percentiles bajo saturación (*coordinated omission*). Limitación declarada: estos ejecutores espacian los arribos de forma uniforme (no Poisson) — la aleatoriedad de la corrida está en símbolo, lado, precio y cantidad, no en el instante de llegada.
+- **Verificación de aislamiento del sharding** (retroalimentación 01-sep): cada respuesta trae el `shard_id` que la procesó y k6 verifica en vivo que un mismo símbolo sea respondido siempre por el mismo shard (contador `shard_routing_violations` con threshold `count==0` en las fases oficiales) — evidencia empírica de la correlación entrada↔salida, además del argumento por construcción (`floorMod(hashCode, N)`).
 - **Criterio de éxito p95 ≤ 200 ms** como threshold de k6 (falla la corrida en vivo); p99/p99.9 se registran como observación (`summaryTrendStats`).
 - **Doble punto de medida**: `grpc_req_duration` en k6 vs. HdrHistogram del shard (logueado cada 10 s). La brecha entre ambos aísla el costo de red/router.
 - **Rechazos como métrica de primera clase**: el contador `orders_rejected_backpressure` debe ser 0 en F1–F3; en F4 su aparición es parte del resultado (dónde se activa la protección).

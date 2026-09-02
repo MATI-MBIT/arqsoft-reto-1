@@ -20,6 +20,7 @@ Registro de las ejecuciones del PoC con sus salidas crudas de k6 y su interpreta
 | **F4-explore @250/s** | 1 símbolo · ~5 min | 39.539 | 1,25 ms | **3,63 ms** | 5,45 ms | 10,15 ms | 38,9 ms | 0 | sin degradación |
 | **F4-explore @500/s** | 1 símbolo · ~5 min | 77.040 | 0,96 ms | **2,40 ms** | 5,13 ms | 28,03 ms | 169,5 ms | 0 | sin degradación |
 | **F4-explore @1000/s** | 1 símbolo · ~5 min | 152.039 | 0,49 ms | **1,11 ms** | 3,46 ms | 6,03 ms | 14,7 ms | 0 | **techo no alcanzado** |
+| F2-N1 — N mínimo (retroalimentación 01-sep) | perfil F2 corto sobre **1 shard** | — | — | — | — | — | — | — | pendiente |
 
 *(Latencias de `grpc_req_duration`: extremo a extremo del RPC medido por k6. En todas las corridas la tasa promedio lograda coincidió con el valor teórico del perfil — el generador nunca se quedó atrás.)*
 

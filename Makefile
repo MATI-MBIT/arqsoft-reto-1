@@ -36,6 +36,17 @@ up-n4: ## Levanta la topología N=4: router :8080 + 4 shards LMAX
 	SHARDS=$(SHARDS_N4) $(COMPOSE) --profile n4 up --build -d
 	@echo "Router gRPC en localhost:8080 con 4 shards — logs: make logs"
 
+.PHONY: up-n1
+up-n1: ## Levanta la topología N=1: router :8080 + 1 shard (para evidenciar el N mínimo)
+	$(COMPOSE) --profile n4 down --remove-orphans
+	SHARDS=matching-shard-0:9090 $(COMPOSE) up --build -d ingest-router matching-shard-0
+	@echo "Router gRPC en localhost:8080 con 1 shard — logs: make logs"
+
+.PHONY: f2-n1
+f2-n1: up-n1 ## Perfil F2 corto (~5 min) sobre N=1: evidencia directa del N mínimo de shards del contrato
+	@sleep 15
+	cd $(K6_DIR) && k6 run -e PHASE=f2 -e SMOKE=1 poc.js
+
 .PHONY: down
 down: ## Detiene y elimina los contenedores
 	$(COMPOSE) --profile n4 down --remove-orphans

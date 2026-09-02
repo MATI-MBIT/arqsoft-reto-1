@@ -12,3 +12,4 @@ build/
 # Salidas de corridas
 *.log
 load/k6/results/
+bin/

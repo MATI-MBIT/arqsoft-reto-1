@@ -7,7 +7,15 @@ nav_order: 4
 
 Registro de la ejecución vigente del PoC con sus salidas crudas y su interpretación. Esta página es la **evidencia externa** enlazada desde la pestaña Experiments de Helix (E01 → Links & evidence).
 
-**Entorno:** una sola máquina (macOS, Apple Silicon, 14 vCPU), Docker Compose — `ingest-router` + **N=2 shards** LMAX (`RING_SIZE=16384`, `QUEUE_CAPACITY=10000`, ZGC) —, generador k6 ≥ 0.49 con gRPC nativo en el host, tráfico por loopback. **Fecha: 2 de septiembre de 2026.** Generador con arribo estocástico (desplazamiento exponencial por iteración, Ca² = 0,89), 36 símbolos que el hash reparte 18/18 con N=2, y umbrales de rechazos, iteraciones descartadas y violaciones de routing. **Cada fase corre sobre una topología recién levantada**, de modo que sus percentiles internos son de esa fase y solo de esa. Limitación declarada en E01: valida el patrón, no el dimensionamiento (sin red real de TEC-2, sin `cpuset`).
+Tres bloques, en orden de importancia:
+
+1. **Serie B** — corrida oficial con el punto de operación declarado (`S = 8 ms` por orden). Es la evidencia que sostiene ASR-02 y ASR-03.
+2. **Serie A** — la misma secuencia con la lógica de negocio apagada (`S = 0`). Mide el costo propio del patrón, aislado del trabajo.
+3. **Barrido de S** — el presupuesto: cuánto puede costar una orden sin romper el SLA.
+
+> **Ninguna cifra de este PoC se lee sin su `S` al lado.** El motor no implementa la lógica de negocio; su costo por orden es un parámetro declarado del experimento (`BIZ_MICROS`), y de él dependen el techo del shard (`1/S`), el reparto entre motor y transporte, y si la partición caliente amenaza el SLA. El shard publica su punto de operación al arrancar, y el arnés lo estampa en el nombre del directorio de resultados y en `manifiesto.txt`.
+
+**Entorno:** una sola máquina (macOS, Apple Silicon, 14 vCPU), Docker Compose — `ingest-router` + **N=2 shards** LMAX (`RING_SIZE=16384`, `QUEUE_CAPACITY=10000`, ZGC) —, generador k6 ≥ 0.49 con gRPC nativo en el host, tráfico por loopback. **Fechas: Serie A y barridos, 2 de septiembre de 2026; Serie B, 3 de septiembre.** Generador con arribo estocástico (desplazamiento exponencial por iteración, Ca² = 0,89), 36 símbolos que el hash reparte 18/18 con N=2, y umbrales de rechazos, iteraciones descartadas y violaciones de routing. **Cada fase corre sobre una topología recién levantada**, de modo que sus percentiles internos son de esa fase y solo de esa. Limitación declarada en E01: valida el patrón, no el dimensionamiento (sin red real de TEC-2, sin `cpuset`).
 
 ## Cómo se calcula cada número
 
@@ -19,9 +27,110 @@ Tres estadísticos distintos, que no son intercambiables:
 
 Validación de la contabilidad: las órdenes contadas por el motor coinciden exactamente con las iteraciones de k6 en las seis fases. Límite del instrumento: la latencia interna se registra en microsegundos enteros con piso en 1, así que `1 µs` significa «≤ 1 µs».
 
-## Serie A — lógica de negocio APAGADA (`BIZ_MICROS=0`)
+## Serie B — punto de operación declarado (`BIZ_MICROS=8000`) · **evidencia principal**
 
-> **Qué mide esta serie.** Con `S=0` el motor solo ejecuta el `match()` de juguete, así que estas cifras miden **el patrón LMAX aislado y el transporte**, no un motor con lógica de negocio. Sus márgenes contra los 200 ms no son extrapolables: el barrido de más abajo muestra que con lógica realista el reparto se invierte por completo. Se conserva porque es la mejor medición disponible del costo propio del patrón.
+**Fecha:** 3 de septiembre de 2026 · **Comando:** `make e2e BIZ_MICROS=8000` · **Resultados:** `20260902-192250-full-S8000us`
+
+Punto de operación **S = 8 ms por orden**: el escenario C de la [tabla de escenarios](#por-qué-este-barrido) —riesgo y saldos consultados a un servicio o BD en cada orden—, que es el más exigente que sigue siendo arquitectónicamente plausible. Consume el 63 % del presupuesto de 12,7 ms. Si el ASR se cumple aquí, se cumple también en los escenarios A y B por añadidura.
+
+### Medición de k6, extremo a extremo
+
+| Corrida | Perfil | Órdenes | p50 | **p95** | p99 | p99.9 | max | Rechazos | Descartes | Veredicto |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **F1 — Baseline (oficial)** | 17/s · 12 min · 36 símbolos | 12.241 | 7,86 ms | **31,51 ms** | 140 ms | 153 ms | 324 ms | 0 | 0 | ✅ margen 6,3× |
+| **F2+F3 — Rampa, pico 30 min y retorno (oficial)** | 17→84/s · 40 min | 167.429 | 5,61 ms | **74,32 ms** | 141 ms | 231 ms | 534 ms | 0 | 0 | ✅ margen 2,7× |
+| **F4 — Partición caliente** | 84/s en 1 símbolo · 40 min | 167.429 | 11,27 ms | **148,09 ms** | 243 ms | 352 ms | 456 ms | 0 | 0 | ⚠️ margen 1,35× |
+| **F4-explore @250/s** | 1 símbolo · ~5 min | 23.183 | 6,14 s | **6,97 s** | 7,56 s | 7,86 s | 7,89 s | 0 | 16.356 | ❌ saturado |
+| **F4-explore @500/s** | 1 símbolo · ~5 min | 23.983 | 6,24 s | **7,03 s** | 7,58 s | 7,90 s | 7,94 s | 0 | 53.057 | ❌ saturado |
+| **F4-explore @1000/s** | 1 símbolo · ~5 min | 24.345 | 6,27 s | **7,03 s** | 7,57 s | 7,89 s | 7,93 s | 0 | 127.694 | ❌ saturado |
+
+**418.610 órdenes**, 100 % de checks correctos, 0 rechazos por backpressure y 0 violaciones de routing. Las dos fases oficiales pasaron sus cuatro umbrales.
+
+### Percentiles internos del motor — `ACUMULADO` (peor shard)
+
+| Corrida | Órdenes | total p95 | total p99 | **espera p95** | **servicio p50** | **servicio p95** | Motor / k6 |
+|---|---|---|---|---|---|---|---|
+| F1 · 17/s | 12.241 | 27,76 ms | 138,11 ms | 3,79 ms | 4,627 ms | 27,63 ms | **88 %** |
+| F2+F3 · pico 84/s | 167.429 | 73,15 ms | 139,13 ms | 50,08 ms | 4,603 ms | 27,60 ms | **98 %** |
+| F4 · 84/s en 1 libro | 167.429 | 147,07 ms | 241,41 ms | 137,09 ms | 4,599 ms | 27,60 ms | **99 %** |
+| F4-explore @250/s | 23.183 | 6.971 ms | 7.565 ms | 6.963 ms | 4,599 ms | 27,60 ms | ~100 % |
+| F4-explore @500/s | 23.983 | 7.037 ms | 7.590 ms | 7.029 ms | 4,599 ms | 27,60 ms | ~100 % |
+| F4-explore @1000/s | 24.345 | 7.033 ms | 7.582 ms | 7.029 ms | 4,599 ms | 27,60 ms | ~100 % |
+
+### Lectura de los resultados
+
+**ASR-02 y ASR-03 se validan con lógica de negocio encendida.** F1 con p95 = 31,51 ms (margen 6,3×) y F2+F3 con p95 = 74,32 ms (margen 2,7×), sobre 179.670 órdenes y con un costo por orden de 8 ms. Es una afirmación de otra naturaleza que la de la Serie A: allí el margen de 44× se medía contra un `match()` de 13 µs sobre un `TreeMap`.
+
+**El motor explica la latencia, no el transporte.** Pasa del 88 % en F1 al 99 % en F4. La conclusión de la Serie A —«el 96 % es transporte»— queda confinada al caso `S = 0`.
+
+#### Servicio y espera se separan limpiamente
+
+`servicio p95` vale **27,60 ms en las seis fases**, con la carga variando de 17 a 1.000 órd/s y la distribución pasando de 36 símbolos a uno solo. Toda la degradación entra por la cola:
+
+| Fase | Carga · distribución | espera p95 | servicio p95 |
+|---|---|---|---|
+| F1 | 17/s · repartida | 3,79 ms | 27,60 ms |
+| F2+F3 | 84/s · repartida | 50,08 ms | 27,60 ms |
+| F4 | 84/s · **1 partición** | 137,09 ms | 27,60 ms |
+| explore @1000/s | 1.000/s · 1 partición | 7.029 ms | 27,60 ms |
+
+El tiempo de servicio es propiedad del **trabajo**; la espera es propiedad de la **carga**. Es lo que permite decidir entre abaratar la orden y agregar particiones sin adivinar.
+
+#### El modelo reproduce su distribución clase por clase
+
+Con `unit = 8.000/1,74 = 4.598 µs`, la mezcla 90/9/1 debería aparecer en tres percentiles distintos del tiempo de servicio, y aparece:
+
+| Percentil | Clase | Predicho | Medido (F1) |
+|---|---|---|---|
+| p50 | 90 % · ×1 | 4.598 µs | **4.627 µs** |
+| p95 | 9 % · ×6 | 27.586 µs | **27.615 µs** |
+| p99 | 1 % · ×30 | 137.931 µs | **138.111 µs** |
+
+Tres órdenes de magnitud, tres aciertos. El modelo no solo entrega la media que declara: entrega la distribución.
+
+Consecuencia práctica: **la clase pesada del 1 % cuesta 138 ms de servicio ella sola**, el 69 % del presupuesto en una sola orden y sin nada de cola. Por eso el p99 extremo a extremo se pega a 140 ms en F1 y F2 aunque el p95 esté en 31 y 74 ms. Si el ASR pidiera p99 ≤ 200 ms en vez de p95, S = 8 ms estaría al borde.
+
+#### H2b se manifestó: la partición caliente duplica el p95
+
+Misma tasa, mismo S; lo único que cambia es la distribución de símbolos:
+
+| | F2+F3 · repartida 18/18 | F4 · todo en 1 símbolo | |
+|---|---|---|---|
+| k6 p95 | 74,32 ms | **148,09 ms** | ×2,0 |
+| espera p95 | 50,08 ms | **137,09 ms** | ×2,7 |
+| servicio p95 | 27,60 ms | 27,60 ms | invariante |
+
+En la Serie A, F4 salía **más rápida** que F2 (4,00 contra 4,58 ms) y se concluyó que H2b «no se manifestó». Con lógica realista la hipótesis de mayor riesgo del experimento pasa de no observarse a estar **medida: ×2,0 en p95 y ×2,7 en espera**. Sigue cumpliendo el ASR, pero con 1,35× de margen en lugar de los 50× que aparentaba.
+
+#### El techo de un shard es 1/S, y ahora es medible
+
+Con S = 8 ms el techo teórico de una partición es **125 órd/s**. Las tres exploraciones lo confirman por saturación: se ofrecieron 250, 500 y 1.000 órd/s y el motor entregó **23.183, 23.983 y 24.345** órdenes — prácticamente lo mismo. Cuadruplicar la carga ofrecida entregó apenas un 5 % más de trabajo; solo multiplicó los descartes del generador (16.356 → 53.057 → 127.694). Es la firma canónica de un servidor saturado.
+
+| | Serie A (`S=0`) | Serie B (`S=8 ms`) |
+|---|---|---|
+| Techo de un shard | «> 1.000 órd/s», no alcanzado | **125 órd/s** |
+| Pico contractual sobre el techo | irrelevante | **67 %** (84 de 125) |
+
+La cifra de «techo no alcanzado» de la Serie A era una propiedad del `TreeMap`. El techo real depende del costo por orden, y con el pico contractual ocupando el 67 % de una sola partición, el margen de dimensionamiento es mucho más estrecho de lo que sugería.
+
+#### Se degrada por latencia, nunca por rechazo
+
+**0 rechazos por backpressure en las seis fases**, incluso con la cola en 7 segundos y ρ = 8. Lo que delata la saturación son los descartes del generador, no el motor. El criterio de «0 rechazos» de F1–F3, por sí solo, no protege de nada — confirma el hallazgo 4 del barrido en una corrida larga.
+
+#### El perfil corto replica al oficial
+
+F4 de esta serie dio **148,09 ms**; el punto `S=8000` del barrido corto de partición caliente había dado **148,19 ms** — con 14.600 órdenes contra 167.429, 4,5 min contra 40, y en instancias de contenedor distintas. La coincidencia está más cerca de lo que la varianza entre corridas justifica, así que hay algo de suerte; pero desmiente la limitación declarada de que el perfil corto fuera solo una cota inferior. Para esta medición no sesga.
+
+### Desviaciones declaradas de esta corrida
+
+Mismo entorno y limitaciones que la Serie A (macOS, Docker en VM, sin `cpuset`, sin red real de TEC-2). Dos específicas:
+
+- **El p99.9 excede el SLA en el pico**: 231 ms en F2+F3 y 352 ms en F4, contra 200 ms. El umbral contractual es sobre p95 y se cumple, pero una de cada mil órdenes lo excede en el pico. Viene de la clase pesada del modelo (138 ms de servicio) sumada a la cola.
+- **S = 8 ms es una hipótesis, no una medición.** Es el escenario C estimado, no el costo de una lógica de negocio real, que el PoC no implementa. Lo que la corrida demuestra es que *si* el costo por orden fuera de 8 ms, el ASR se cumple; el número contra el que hay que verificarlo cuando la lógica exista sigue siendo el presupuesto de 12,7 ms.
+
+## Serie A — lógica de negocio APAGADA (`BIZ_MICROS=0`) · referencia
+
+> **Qué mide esta serie.** Con `S=0` el motor solo ejecuta el `match()` de juguete, así que estas cifras miden **el patrón LMAX aislado y el transporte**, no un motor con lógica de negocio. Sus márgenes contra los 200 ms no son extrapolables — la Serie B los mide con el punto de operación declarado. Se conserva porque sigue siendo la mejor medición disponible del **costo propio del patrón**: 272 µs de p95 interno en F1, de los que el 76 % es despertar un hilo dormido.
 
 ### Resumen — medición de k6, extremo a extremo
 
@@ -244,10 +353,24 @@ Es una **cota inferior conservadora**: macOS con Docker en VM y sin `cpuset`; co
 
 ## Conclusión del experimento
 
-Seis corridas, 615.714 órdenes, 100 % procesadas, 0 rechazos, 0 violaciones de routing y una sola iteración descartada. **H1 y H2 se cumplen** con márgenes de 27× y 44× bajo arribo estocástico, con el sharding balanceado y verificado en vivo; **F3 confirma que la escalabilidad exigida es transitoria** — el backlog drena y la latencia vuelve por debajo del baseline.
+**Con el punto de operación declarado en 8 ms por orden, H1 y H2 se cumplen:** ASR-02 con p95 = 31,51 ms (margen 6,3×) y ASR-03 con p95 = 74,32 ms (margen 2,7×), sobre 418.610 órdenes bajo arribo estocástico, con el sharding balanceado y verificado en vivo, 0 rechazos y 0 violaciones de routing. **F3 confirma que la escalabilidad exigida es transitoria**: el backlog drena y la latencia vuelve al régimen base.
 
-El patrón aporta el **3,7 %** de la latencia que ve el cliente, proporción constante en las seis fases: los valores absolutos miden sobre todo el montaje, no el motor. Lo que sí se sostiene del patrón es su contribución propia (272 µs de p95 en F1, de los que 76 % es despertar un hilo dormido) y el presupuesto que deja libre.
+**El entregable no es un p95: es un presupuesto.** El PoC no implementa la lógica de negocio, y como en un único escritor su costo se serializa, ese costo gobierna todo lo demás. La conclusión falsable es:
 
-**H2b no se refuta: se reformula.** La partición caliente absorbió las 167.429 órdenes del pico contractual en un solo hilo sin degradarse, y el techo de un shard no se alcanzó ni a 1.000 órdenes/s. Pero ese techo es 1/S y estas corridas lo midieron con un `match()` de microsegundos. El barrido de tiempo de servicio acota el resultado a un **presupuesto**: el patrón sostiene el ASR con todo el pico en una sola partición mientras el costo por orden se mantenga bajo **~8,5 ms**. Por encima, H2b se manifiesta.
+> Con el pico contractual repartido entre 2 particiones, el patrón LMAX sostiene p95 ≤ 200 ms mientras **procesar una orden cueste hasta 12,7 ms**; con todo el pico en una sola partición, hasta **8,5 ms**.
 
-Tres frentes abiertos: los atascos aislados de 300 ms **exigen JFR** para atribuirse a GC, JIT o contención del host; la cláusula de H2 sobre no exigir más de un núcleo por partición sigue **sin evidencia** porque no se midió CPU por proceso; y la de H1 sobre journaling fuera del camino crítico no se probó porque **no hay journaling** en el PoC. Verificar el presupuesto contra la lógica de negocio real y repetir en el banco de tres nodos (TEC-2) son los siguientes pasos.
+Cuando la lógica de negocio real exista, se mide su costo y se compara contra esas dos cifras. No hace falta re-ejecutar el experimento para saber si la arquitectura sirve.
+
+**Tres conclusiones de la Serie A quedaron corregidas** al encender la lógica de negocio:
+
+| Afirmación con `S = 0` | Con `S = 8 ms` |
+|---|---|
+| «El 96 % del tiempo es transporte; el motor aporta el 3,7 %» | El motor aporta del **88 % al 99 %**. El transporte es ruido. |
+| «H2b no se manifestó: la partición caliente no degradó el servicio» | **Se manifestó: ×2,0 en p95 y ×2,7 en espera** frente a la carga repartida. |
+| «El techo de un shard no se alcanzó ni a 1.000 órd/s» | El techo es `1/S` = **125 órd/s**. El pico contractual ocupa el 67 % de una partición. |
+
+Ninguna era un error de medición: las tres eran correctas para lo que se midió, y ninguna era extrapolable a un motor con lógica de negocio. Es el argumento de por qué `BIZ_MICROS` es hoy un parámetro obligatorio y registrado de cada corrida.
+
+**Un resultado colateral sobre el sharding.** Repartir el mismo pico entre 2 particiones sube el presupuesto de 8,5 a 12,7 ms: **1,49×**, no el 2× que predice el modelo de colas. Las particiones queman núcleo de verdad y compiten entre sí, con el router y con el generador, dentro de la misma VM. Shardear rinde menos de lo prometido mientras las particiones compartan núcleos — lo que convierte a `cpuset` y al banco TEC-2 de nota al pie en condición de la medición.
+
+**Frentes abiertos.** Los atascos aislados **exigen JFR** para atribuirse a GC, JIT o contención del host; la cláusula de H2 sobre no exigir más de un núcleo por partición sigue **sin evidencia** porque no se midió CPU por proceso — y el hallazgo de 1,49× la vuelve urgente; la de H1 sobre journaling fuera del camino crítico no se probó porque **no hay journaling** en el PoC. El p99.9 excede los 200 ms en el pico (231 ms en F2+F3, 352 ms en F4): si el contrato se endureciera a p99, S = 8 ms no alcanzaría. Verificar el presupuesto contra la lógica de negocio real y repetir en el banco de tres nodos siguen siendo los siguientes pasos.

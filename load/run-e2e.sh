@@ -66,8 +66,11 @@ run_phase() {
   echo "════════════════════════════════════════════════════"
   echo "  Fase: $name"
   echo "════════════════════════════════════════════════════"
-  fresh_topology
+  # ANTES de fresh_topology: el shard declara su punto de operacion al arrancar
+  # y con la marca tomada despues esa linea queda siempre fuera de la captura.
+  # fresh_topology hace `down` primero, asi que no se arrastra la fase anterior.
   local since; since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  fresh_topology
   ( cd "$ROOT/load/k6" && k6 run $SMOKE_FLAG "$@" --summary-export="$OUT/$name.json" poc.js ) 2>&1 | tee "$OUT/$name.txt"
   local rc=${PIPESTATUS[0]}
   capture_shard_logs "$name" "$since"
@@ -101,8 +104,8 @@ for peak in 250 500 1000; do
   echo "════════════════════════════════════════════════════"
   echo "  Fase: f4-explore @ ${peak}/s"
   echo "════════════════════════════════════════════════════"
-  fresh_topology
   since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  fresh_topology
   ( cd "$ROOT/load/k6" && k6 run -e SMOKE=1 -e PHASE=f4 -e PEAK="$peak" \
       --summary-export="$OUT/f4-explore-$peak.json" poc.js ) 2>&1 | tee "$OUT/f4-explore-$peak.txt"
   capture_shard_logs "f4-explore-$peak" "$since"
@@ -116,6 +119,7 @@ echo ""
 echo "══════════════════ RESUMEN E2E · BIZ_MICROS=${BIZ_MICROS}us ══════════════════"
 for f in "$OUT"/*.txt; do
   n="$(basename "$f" .txt)"
+  [ "$n" = "manifiesto" ] && continue   # no es una fase
   p95="$(grep 'grpc_req_duration' "$f" | grep -o 'p(95)=[^ ]*' | head -1)"
   rej="$(k6_metric "$f" orders_rejected_backpressure)"
   drop="$(k6_metric "$f" dropped_iterations)"

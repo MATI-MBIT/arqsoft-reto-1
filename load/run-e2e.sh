@@ -11,11 +11,25 @@
 # ==============================================================================
 set -uo pipefail
 
+# Lee una metrica del RESUMEN de k6. Anclado a "^  <nombre>....:" a proposito:
+# k6 lista los nombres de metricas sin valor antes del resumen, y un patron no
+# anclado engancha esa lista y devuelve vacio -> se reportaria 0 siempre.
+k6_metric() {
+  grep -E "^[[:space:]]+$2\.+:" "$1" | head -1 | grep -oE '[0-9]+' | head -1
+}
+
 MODE="${1:-smoke}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE="docker compose -f $ROOT/deploy/docker-compose.yml"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-OUT="$ROOT/load/k6/results/$STAMP-$MODE"
+
+# Punto de operación de la lógica de negocio, en µs por orden. NO tiene default
+# silencioso: con BIZ_MICROS=0 la corrida mide el patrón con la lógica APAGADA y
+# su p95 no es comparable con el de un motor real (ver BusinessLogicModel). Se
+# exporta para que compose lo reciba y queda en el nombre del directorio y en el
+# manifiesto: una corrida cuyo S nadie anotó no es evidencia de nada.
+export BIZ_MICROS="${BIZ_MICROS:-0}"
+OUT="$ROOT/load/k6/results/$STAMP-$MODE-S${BIZ_MICROS}us"
 mkdir -p "$OUT"
 
 SMOKE_FLAG=""
@@ -42,7 +56,7 @@ capture_shard_logs() {
   local name="$1" since="$2"
   $COMPOSE stop >/dev/null 2>&1 || true
   $COMPOSE logs --no-color --since "$since" 2>/dev/null \
-    | grep -E "ACUMULADO|shard=[0-9]+ n=" > "$OUT/$name-shard.log" || true
+    | grep -E "modelo de logica|ACUMULADO|shard=[0-9]+ n=" > "$OUT/$name-shard.log" || true
   grep "ACUMULADO" "$OUT/$name-shard.log" 2>/dev/null | sed 's/^/  /' || true
 }
 
@@ -62,7 +76,14 @@ run_phase() {
   fi
 }
 
-echo "== E2E experimento E01 · modo=$MODE · resultados en $OUT =="
+echo "== E2E experimento E01 · modo=$MODE · BIZ_MICROS=${BIZ_MICROS}us · resultados en $OUT =="
+if [ "$BIZ_MICROS" = "0" ]; then
+  echo "   AVISO: lógica de negocio APAGADA — se mide solo el patrón; el p95 de"
+  echo "          esta corrida NO es el de un motor con lógica real."
+fi
+{ echo "modo=$MODE"; echo "biz_micros=$BIZ_MICROS"; echo "fecha=$(date -u +%Y-%m-%dT%H:%M:%SZ)";
+  echo "k6=$(k6 version 2>/dev/null | head -1)"; echo "commit=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null)";
+} > "$OUT/manifiesto.txt"
 
 # 1. Construir imágenes una vez; cada fase levanta su propia topología limpia.
 $COMPOSE build
@@ -92,12 +113,12 @@ $COMPOSE down --remove-orphans >/dev/null 2>&1 || true
 
 # 6. Resumen
 echo ""
-echo "══════════════════ RESUMEN E2E ══════════════════"
+echo "══════════════════ RESUMEN E2E · BIZ_MICROS=${BIZ_MICROS}us ══════════════════"
 for f in "$OUT"/*.txt; do
   n="$(basename "$f" .txt)"
   p95="$(grep 'grpc_req_duration' "$f" | grep -o 'p(95)=[^ ]*' | head -1)"
-  rej="$(grep -o 'orders_rejected_backpressure[^0-9]*[0-9]*' "$f" | head -1 | grep -o '[0-9]*$')"
-  drop="$(grep -o 'dropped_iterations[^0-9]*[0-9]*' "$f" | head -1 | grep -o '[0-9]*$')"
+  rej="$(k6_metric "$f" orders_rejected_backpressure)"
+  drop="$(k6_metric "$f" dropped_iterations)"
   printf "  %-18s %-16s rechazos=%s descartes=%s\n" "$n" "${p95:-sin dato}" "${rej:-0}" "${drop:-0}"
 done
 echo "  Salidas crudas (.txt) y resúmenes (.json) en: $OUT"

@@ -131,29 +131,19 @@ f4-explore: ## Busca el punto de quiebre de un shard: corridas de ~5 min a 250, 
 # el de un motor real. Este barrido recorre S y produce el PRESUPUESTO: el mayor
 # costo por orden con el que el patrón todavía cumple p95 <= 200 ms.
 
-SWEEP_MICROS ?= 0 1000 5000 8000 10000 12000
-SWEEP_PEAK   ?= 84
-SWEEP_PHASE  ?= f4
-SWEEP_OUT    ?= load/k6/results/sweep
+SWEEP_MICROS ?= 0 5000 10000 15000 20000 25000
 
 .PHONY: sweep-service
-sweep-service: ## Barre el costo por orden S y produce el presupuesto de tiempo de servicio (peor caso: partición caliente)
-	@$(COMPOSE) build
-	@for S in $(SWEEP_MICROS); do \
-	  echo ""; \
-	  echo "================ S=$${S}us · $(SWEEP_PEAK)/s · fase $(SWEEP_PHASE) ================"; \
-	  $(COMPOSE) --profile n4 down --remove-orphans >/dev/null 2>&1 || true; \
-	  BIZ_MICROS=$$S $(COMPOSE) up -d >/dev/null; \
-	  sleep 20; \
-	  ( cd $(K6_DIR) && k6 run -e PHASE=$(SWEEP_PHASE) -e SMOKE=1 -e PEAK=$(SWEEP_PEAK) poc.js ) || true; \
-	  mkdir -p $(SWEEP_OUT); \
-	  $(COMPOSE) logs --no-color matching-shard-0 matching-shard-1 2>/dev/null | grep -E "modelo de logica|p50=" > $(SWEEP_OUT)/shard-S$${S}us.log; \
-	  echo "--- interno del shard: total | espera (cola) | servicio (S real) — completo en $(SWEEP_OUT)/shard-S$${S}us.log ---"; \
-	  tail -4 $(SWEEP_OUT)/shard-S$${S}us.log; \
-	done
-	@echo ""
-	@echo "Lectura: 'servicio' debe seguir a S y NO depender de la tasa; 'espera' es lo que"
-	@echo "explota cuando rho -> 1. El presupuesto es el mayor S que aun cumple p95 <= 200 ms."
+sweep-service: ## Presupuesto de tiempo de servicio en el perfil OFICIAL (ASR-03, N=2, 84 ord/s)
+	MICROS="$(SWEEP_MICROS)" PHASE=f2 PEAK=84 N=2 ./load/sweep-service.sh
+
+.PHONY: sweep-hot
+sweep-hot: ## Presupuesto en el PEOR caso: todo el pico contractual en una sola partición (F4)
+	MICROS="0 1000 5000 8000 10000 12000" PHASE=f4 PEAK=84 N=1 ./load/sweep-service.sh
+
+.PHONY: sweep-n4
+sweep-n4: ## Mismo barrido con N=4: evidencia de si el presupuesto escala con el numero de shards
+	MICROS="$(SWEEP_MICROS)" PHASE=f2 PEAK=84 N=4 ./load/sweep-service.sh
 
 .PHONY: compare-sharding
 compare-sharding: ## Compara N=2 vs N=4 con carga repartida a tasa PEAK/s (make compare-sharding PEAK=400)
@@ -172,10 +162,12 @@ compare-sharding: ## Compara N=2 vs N=4 con carga repartida a tasa PEAK/s (make 
 
 # ---------- Ciclo E2E de un solo comando --------------------------------------
 
+BIZ_MICROS ?= 0
+
 .PHONY: e2e
-e2e: ## Ciclo E2E oficial completo (~1h40m): up → F1 → F2+F3 → F4 → F4-explore → down, resultados en load/k6/results/
-	./load/run-e2e.sh full
+e2e: ## Ciclo E2E oficial (~1h40m). Declarar el punto de operacion: make e2e BIZ_MICROS=2000
+	BIZ_MICROS=$(BIZ_MICROS) ./load/run-e2e.sh full
 
 .PHONY: e2e-smoke
 e2e-smoke: ## Mismo ciclo E2E en corto (~25 min): la regresión a correr tras cada cambio de implementación
-	./load/run-e2e.sh smoke
+	BIZ_MICROS=$(BIZ_MICROS) ./load/run-e2e.sh smoke

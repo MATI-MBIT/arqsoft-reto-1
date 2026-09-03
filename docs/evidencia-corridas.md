@@ -40,6 +40,10 @@ La solución es tratar ese costo como **parámetro declarado del experimento** �
 
 Esa afirmación es falsable sin conocer todavía la lógica real: cuando exista, se mide su costo y se compara.
 
+**S es una media, no el costo de cada orden.** La lógica de negocio real no responde siempre igual: la mayoría de las órdenes son límite baratas que no cruzan, unas pocas barren varios niveles y generan varios trades, y una fracción mínima dispara cascadas. El modelo (`BusinessLogicModel`) reproduce esa forma con una **mezcla de tres clases** — 90 % ×1, 9 % ×6, 1 % ×30 — que a S = 8 ms significa que **una orden cuesta 4,6 / 27,6 / 138 ms según su clase**, con un Cs² de 3,34. Una constante daría Cs² = 0 y una exponencial 1: el modelo es *más* variable que una exponencial, que es lo que un motor real exhibe.
+
+La variable `BIZ_DIST` permite además cambiar la **forma** de esa distribución manteniendo media y Cs² —ver §4.4—, para verificar que el resultado no dependa de esa elección de modelado.
+
 ### Las tres corridas y qué aporta cada una
 
 | # | Corrida | S | La pregunta que responde |
@@ -119,9 +123,10 @@ Contra los **74,32 ms** que midió k6 para la misma fase: el transporte aporta ~
 
 ### Tres advertencias de lectura
 
-1. **Ninguna cifra se lee sin su S al lado.** El techo de la partición, el reparto motor/transporte y el veredicto sobre la partición caliente cambian todos con el costo por orden. Por eso el motor publica su punto de operación al arrancar y el arnés lo estampa en el nombre del directorio de resultados y en `manifiesto.txt`.
-2. **El motor también emite un histograma cada 10 s**, útil para ver la *evolución* dentro de una fase. Se reporta como mediana entre ventanas con [mín–máx]. La mediana de los p95 por ventana **no es** el p95 de la población.
-3. **k6 omite del resumen los contadores que nunca se incrementaron.** Su ausencia significa cero, no falta de dato. En las fases con umbral aparecen siempre explícitos.
+1. **S es la media, no el costo de cada orden.** Las órdenes individuales cuestan entre 4,6 y 138 ms con la distribución por defecto. Ver §1 y §4.4.
+2. **Ninguna cifra se lee sin su S al lado.** El techo de la partición, el reparto motor/transporte y el veredicto sobre la partición caliente cambian todos con el costo por orden. Por eso el motor publica su punto de operación al arrancar y el arnés lo estampa en el nombre del directorio de resultados y en `manifiesto.txt`.
+3. **El motor también emite un histograma cada 10 s**, útil para ver la *evolución* dentro de una fase. Se reporta como mediana entre ventanas con [mín–máx]. La mediana de los p95 por ventana **no es** el p95 de la población.
+4. **k6 omite del resumen los contadores que nunca se incrementaron.** Su ausencia significa cero, no falta de dato. En las fases con umbral aparecen siempre explícitos.
 
 ### Entorno
 
@@ -203,6 +208,37 @@ Lo que esta corrida establece y sigue en pie:
 - **F3 drena por debajo del baseline.** La espera interna vuelve a 137 µs contra los 203 µs de F1: la escalabilidad transitoria que exige ASR-03 se absorbe sin dejar deuda.
 - **Atascos aislados de cientos de milisegundos.** En F2 una orden tardó 300 ms en procesarse y otra esperó 375 ms en el ring buffer, con el p99.9 de la fase en 1,74 ms. Un solo evento así incumple el SLA, y **no se puede atribuir a GC, JIT o contención del host sin JFR**, declarado en el diseño y no implementado.
 
+### 4.4 ¿Depende el resultado de la forma de la distribución? — A/B de forma
+
+La mezcla de tres clases es discreta: solo existen tres costos posibles y nada entre ellos, mientras la lógica real sería continua. Para saber si esa simplificación cambia el veredicto, se corre la misma fase con una **lognormal** —el modelo estándar de tiempos de servicio, continua y **sin cota superior**— construida con la **misma media y el mismo Cs²**. Así el A/B varía solo la forma.
+
+Verificación previa de que las dos son comparables (500.000 muestras, fuera del contenedor):
+
+| | media | Cs² | p50 | p95 | p99 | max | valores distintos |
+|---|---|---|---|---|---|---|---|
+| mezcla | 8.011 µs | 3,327 | 4.598 | 27.586 | 27.586 | 137.931 | **3** |
+| lognormal | 8.019 µs | 3,369 | 3.833 | 28.195 | 64.735 | 756.134 | **489.203** |
+
+Resultado sobre la fase F2 (perfil corto, N=2, 84 órd/s, S = 8 ms, 14.639 órdenes cada una):
+
+| | Mezcla | Lognormal | Δ |
+|---|---|---|---|
+| k6 p50 | 5,82 ms | 7,35 ms | +26 % |
+| **k6 p95** | **74,7 ms** | **63,3 ms** | **−15 %** |
+| k6 p99 | 140,95 ms | 148,59 ms | +5 % |
+| **k6 p99.9** | **266,35 ms** | **326,54 ms** | **+23 %** |
+| servicio p50 | 4.603 µs | 3.877 µs | −16 % |
+| servicio p99.9 | 137.983 µs | 169.343 µs | +23 % |
+| **servicio max** | **138.111 µs** | **369.407 µs** | **+167 %** |
+
+Tres lecturas:
+
+**El veredicto del ASR es robusto a la forma.** 74,7 y 63,3 ms, ambos muy por debajo de 200. La conclusión sobre ASR-03 se sostiene bajo las dos distribuciones, así que **deja de depender de una decisión de modelado** — es más fuerte que antes, no más débil.
+
+**Pero la forma sí importa en los percentiles altos.** Con los dos primeros momentos idénticos, el p95 se movió 15 % y el p99.9 un 23 %. La aproximación de Kingman —«solo importan la media y el Cs²»— es de primer orden: se sostiene para la media, no para la cola, que es justo donde vive el SLA.
+
+**Y la mezcla subestima la cola.** Está **acotada por construcción** en 30× la media (138 ms de servicio máximo); esa cota es artificial y la lógica real no la tiene. La lognormal produjo una orden de **369 ms de servicio**, un solo evento bloqueando al único escritor más de un tercio de segundo. La violación del p99.9 documentada en §6 es, por tanto, un **piso**: con colas sin cota empeora al menos un 23 %.
+
 ---
 
 ## 5. Hallazgos
@@ -266,7 +302,9 @@ En el barrido, la mediana teórica `0,575·S` acertó en los cinco puntos (2.875
 
 **El tiempo de servicio no se contamina con la carga.** `servicio p95` se mantiene entre 27,60 y 27,63 ms en las seis fases de la corrida oficial, con la tasa variando de 17 a 1.000 órd/s y la distribución pasando de 36 símbolos a uno solo — incluso en saturación completa con la cola en 7 segundos.
 
-**El perfil corto replica al oficial.** F4 dio **148,09 ms**; el punto S = 8 ms del barrido corto había dado **148,19 ms**, con 14.600 órdenes contra 167.429 y 4,5 min contra 40. La coincidencia está más cerca de lo que la varianza justifica, así que hay algo de suerte — pero el perfil corto no sesga esta medición.
+**El perfil corto replica al oficial.** F4 dio **148,09 ms**; el punto S = 8 ms del barrido corto había dado **148,19 ms**, con 14.600 órdenes contra 167.429 y 4,5 min contra 40. Y la fase F2 del A/B de forma, también en perfil corto, dio **74,7 ms** contra los **74,32 ms** de la corrida oficial de 40 min. Tres réplicas dentro del 0,5 %: el perfil corto no sesga esta medición.
+
+**El veredicto no depende de la forma de la distribución de servicio.** Con media y Cs² fijos, cambiar la mezcla discreta por una lognormal continua deja el p95 en 63,3 ms contra 74,7 — los dos muy por debajo de los 200 ms del criterio (§4.4). Lo que sí depende de la forma es la cola: ver la limitación correspondiente en §6.
 
 ### 5.7 Consecuencia: la latencia deja de mejorar con la carga
 
@@ -289,7 +327,7 @@ Con S = 0 el p95 **caía** al subir la tasa (7,54 → 1,20 ms): con 13 µs de tr
 **De la interpretación.** Dos advertencias sobre el veredicto:
 
 - **S = 8 ms es una hipótesis, no una medición.** Es el escenario C estimado, no el costo de una lógica de negocio real que el PoC no implementa. Lo que la corrida demuestra es que *si* el costo por orden fuera de 8 ms, el ASR se cumple. El número a verificar cuando la lógica exista sigue siendo el presupuesto de 12,7 ms.
-- **El p99.9 excede el SLA en el pico**: 231 ms en F2+F3 y 352 ms en F4, contra 200 ms. El contrato es sobre p95 y se cumple, pero una de cada mil órdenes lo excede. Viene de la clase pesada del modelo —138 ms de servicio ella sola— sumada a la cola. Si el contrato se endureciera a p99, S = 8 ms no alcanzaría.
+- **El p99.9 excede el SLA en el pico, y la cifra medida es un piso**: 231 ms en F2+F3 y 352 ms en F4, contra 200 ms. El contrato es sobre p95 y se cumple, pero una de cada mil órdenes lo excede. Viene de la clase pesada del modelo —138 ms de servicio ella sola— sumada a la cola. Dos advertencias: si el contrato se endureciera a p99, S = 8 ms no alcanzaría; y como la mezcla está **acotada por construcción** en 30× la media, el A/B de forma (§4.4) muestra que con una distribución sin cota el mismo escenario da **+23 %**. La magnitud de esta violación depende de una decisión de modelado que no está medida contra la lógica real.
 
 ---
 
@@ -363,6 +401,30 @@ F4-explore
   @500/s   p(95)=2.03ms  n=77038   ACUMULADO total p50=32us p95=73us  | servicio p50=1us p95=7us
   @1000/s  p(95)=1.20ms  n=152039  ACUMULADO total p50=22us p95=46us  | servicio p50=1us p95=3us
   ← el techo no se alcanzó: pero es el techo de un TreeMap, no el de un motor
+```
+
+### A/B de forma de la distribución · S = 8 ms, F2 perfil corto, N=2
+
+```text
+A · mezcla (make sweep-service con BIZ_DIST=mezcla)
+  modelo: mezcla 90/9/1 media=8000us Cs2=3.34 techo_teorico=125 ord/s
+  grpc_req_duration: avg=16.63ms p(50)=5.82ms p(95)=74.7ms p(99)=140.95ms p(99.9)=266.35ms max=360.9ms
+  14.639 órdenes · 0 descartes · 0 rechazos
+  ACUMULADO shard=1 n=7249 total p50=4647us p95=77439us p99=139007us p99.9=246911us max=360191us
+            | espera p50=32us p95=49727us | servicio p50=4603us p95=27599us p99.9=137983us max=138111us
+  ACUMULADO shard=0 n=7390 total p50=4651us p95=70207us p99=140031us p99.9=293631us max=350975us
+            | espera p50=33us p95=47295us | servicio p50=4603us p95=27599us p99.9=137983us max=137983us
+
+B · lognormal (BIZ_DIST=lognormal, misma media y mismo Cs2)
+  modelo: lognormal media=8000us Cs2=3.34 sigma=1.2116 (tope 100x) techo_teorico=125 ord/s
+  grpc_req_duration: avg=16.84ms p(50)=7.35ms p(95)=63.3ms p(99)=148.59ms p(99.9)=326.54ms max=370.44ms
+  14.639 órdenes · 0 descartes · 0 rechazos · 0 muestras recortadas por el tope
+  ACUMULADO shard=1 n=7331 total p50=5963us p95=60575us p99=148607us p99.9=323071us max=369407us
+            | espera p50=32us p95=40863us | servicio p50=3877us p95=29407us p99.9=169343us max=369407us
+  ACUMULADO shard=0 n=7308 total p50=5883us p95=63615us p99=146303us p99.9=329215us max=369407us
+            | espera p50=33us p95=42815us | servicio p50=3879us p95=29407us p99.9=169343us max=369407us
+  ← `servicio max=369407us`: una sola orden bloqueó al único escritor 369 ms.
+     La mezcla no puede producir eso: topa en 138 ms por construcción.
 ```
 
 ### Barrido de S

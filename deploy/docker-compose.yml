@@ -23,6 +23,9 @@ services:
       # (ver BusinessLogicModel). 0 = apagado: se mide solo el patrón, que es la
       # medición original. El barrido lo fija `make sweep-service`.
       BIZ_MICROS: "${BIZ_MICROS:-0}"
+      # Forma de la distribucion del costo: mezcla (default) o lognormal.
+      # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
+      BIZ_DIST: "${BIZ_DIST:-mezcla}"
     # cpuset: "2"        # ← descomentar en Linux: un núcleo dedicado por shard
 
   matching-shard-1:
@@ -38,6 +41,9 @@ services:
       # (ver BusinessLogicModel). 0 = apagado: se mide solo el patrón, que es la
       # medición original. El barrido lo fija `make sweep-service`.
       BIZ_MICROS: "${BIZ_MICROS:-0}"
+      # Forma de la distribucion del costo: mezcla (default) o lognormal.
+      # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
+      BIZ_DIST: "${BIZ_DIST:-mezcla}"
     # cpuset: "3"
 
   matching-shard-2:
@@ -54,6 +60,9 @@ services:
       # (ver BusinessLogicModel). 0 = apagado: se mide solo el patrón, que es la
       # medición original. El barrido lo fija `make sweep-service`.
       BIZ_MICROS: "${BIZ_MICROS:-0}"
+      # Forma de la distribucion del costo: mezcla (default) o lognormal.
+      # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
+      BIZ_DIST: "${BIZ_DIST:-mezcla}"
     # cpuset: "4"
 
   matching-shard-3:
@@ -70,6 +79,9 @@ services:
       # (ver BusinessLogicModel). 0 = apagado: se mide solo el patrón, que es la
       # medición original. El barrido lo fija `make sweep-service`.
       BIZ_MICROS: "${BIZ_MICROS:-0}"
+      # Forma de la distribucion del costo: mezcla (default) o lognormal.
+      # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
+      BIZ_DIST: "${BIZ_DIST:-mezcla}"
     # cpuset: "5"
 
   ingest-router:

@@ -38,8 +38,9 @@ PEAK="${PEAK:-84}"
 N="${N:-2}"
 MICROS="${MICROS:-0 5000 10000 15000 20000 25000}"
 FULL="${FULL:-0}"
+DIST="${BIZ_DIST:-mezcla}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-OUT="${OUT:-$ROOT/load/k6/results/sweep-$STAMP-$PHASE-p$PEAK-n$N}"
+OUT="${OUT:-$ROOT/load/k6/results/sweep-$STAMP-$PHASE-p$PEAK-n$N-$DIST}"
 mkdir -p "$OUT"
 
 SMOKE_FLAG="-e SMOKE=1"
@@ -54,9 +55,9 @@ topology_up() {
   local biz="$1"
   $COMPOSE --profile n4 down --remove-orphans >/dev/null 2>&1 || true
   case "$N" in
-    1) BIZ_MICROS="$biz" SHARDS="matching-shard-0:9090" $COMPOSE up -d ingest-router matching-shard-0 >/dev/null ;;
-    4) BIZ_MICROS="$biz" SHARDS="$SHARDS_N4" $COMPOSE --profile n4 up -d >/dev/null ;;
-    *) BIZ_MICROS="$biz" $COMPOSE up -d >/dev/null ;;
+    1) BIZ_MICROS="$biz" BIZ_DIST="$DIST" SHARDS="matching-shard-0:9090" $COMPOSE up -d ingest-router matching-shard-0 >/dev/null ;;
+    4) BIZ_MICROS="$biz" BIZ_DIST="$DIST" SHARDS="$SHARDS_N4" $COMPOSE --profile n4 up -d >/dev/null ;;
+    *) BIZ_MICROS="$biz" BIZ_DIST="$DIST" $COMPOSE up -d >/dev/null ;;
   esac
   sleep 20
 }
@@ -98,7 +99,7 @@ worst() {
 }
 
 echo "== Barrido de tiempo de servicio =="
-echo "   fase=$PHASE  pico=$PEAK ord/s  N=$N  perfil=$([ "$FULL" = 1 ] && echo oficial || echo corto)"
+echo "   fase=$PHASE  pico=$PEAK ord/s  N=$N  dist=$DIST  perfil=$([ "$FULL" = 1 ] && echo oficial || echo corto)"
 echo "   S (us): $MICROS"
 echo "   salida: $OUT"
 $COMPOSE build

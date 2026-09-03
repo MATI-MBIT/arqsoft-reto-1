@@ -27,11 +27,21 @@ import java.util.SplittableRandom;
  * granularidad en la JVM es de milisegundos — no se puede modelar 50 µs con eso.
  * La lógica de negocio real consume ciclos; el modelo también.
  *
- * <p><b>Una sola perilla:</b> {@code BIZ_MICROS}, el costo medio por orden en µs
- * (0 o ausente = apagado, se mide solo el patrón). Todo lo demás está fijo a
- * propósito: sin una estimación del costo real, exponer la forma de la
- * distribución o su varianza sería precisión falsa, y cada variable extra es una
- * manera más de producir una corrida cuya configuración nadie anotó.
+ * <p><b>Una perilla de magnitud:</b> {@code BIZ_MICROS}, el costo <i>medio</i> por
+ * orden en µs (0 o ausente = apagado, se mide solo el patrón). No es el costo de
+ * cada orden: el modelo es una distribución, no una constante.
+ *
+ * <p><b>Y una perilla de forma:</b> {@code BIZ_DIST} = {@code mezcla} (default) o
+ * {@code lognormal}. Existe para una sola pregunta: <i>¿el resultado depende de la
+ * forma de la distribución, o solo de su media y su varianza?</i> Las dos variantes
+ * comparten media y Cs² por construcción —la lognormal deriva su sigma del Cs² de
+ * la mezcla— así que una corrida A/B entre ellas varía <b>solo la forma</b>. Si el
+ * p95 no se mueve, la mezcla discreta es una simplificación válida; si se mueve,
+ * el modelo necesita ser continuo. La σ no se expone como parámetro a propósito:
+ * exponerla permitiría elegir la varianza que conviene al resultado.
+ *
+ * <p>Nada más está expuesto: sin una estimación del costo real, cada variable extra
+ * es una manera más de producir una corrida cuya configuración nadie anotó.
  *
  * <p>No es thread-safe, igual que {@link OrderBook}: solo lo toca el único hilo
  * escritor de la partición.
@@ -74,23 +84,57 @@ public final class BusinessLogicModel {
     /** Iteraciones de trabajo aritmético entre dos lecturas del reloj. */
     private static final int SPIN_BATCH = 32;
 
+    /** Formas disponibles. La mezcla es la de referencia; la lognormal es el control. */
+    public enum Shape { MEZCLA, LOGNORMAL }
+
+    /**
+     * Tope de una muestra individual, en múltiplos de la media. Solo aplica a la
+     * lognormal, que no tiene cota superior: sin él, una muestra patológica podría
+     * bloquear el único escritor de la partición durante segundos. A 100× la media
+     * la probabilidad de recorte es ~5e-6, así que no deforma la distribución —
+     * pero si se activa se cuenta y se reporta, porque un recorte silencioso
+     * falsearía el Cs² que la corrida dice tener.
+     */
+    private static final double MAX_SAMPLE_FACTOR = 100.0;
+
     /** Costo de la clase barata, en nanosegundos. 0 = modelo apagado. */
     private final double unitNanos;
     private final double meanNanos;
+    private final Shape shape;
+    /** Parámetros de la lognormal, derivados de la media y del Cs² de la mezcla. */
+    private final double logMu;
+    private final double logSigma;
     private final SplittableRandom random = new SplittableRandom(SEED);
+
+    /** Muestras recortadas por {@link #MAX_SAMPLE_FACTOR}. Debe quedar en 0. */
+    private long clamped;
 
     /** Acumulador del trabajo quemado: impide que el JIT elimine el bucle. */
     private long sink;
 
-    public BusinessLogicModel(double meanMicros) {
+    public BusinessLogicModel(double meanMicros, Shape shape) {
         this.meanNanos = Math.max(0.0, meanMicros) * 1_000.0;
         this.unitNanos = meanNanos / MEAN_FACTOR;
+        this.shape = shape;
+        // Lognormal con la MISMA media y el MISMO Cs2 que la mezcla:
+        //   sigma^2 = ln(1 + Cs2)   y   mu = ln(media) - sigma^2/2
+        // De ahi que el A/B aisle la forma: los dos primeros momentos coinciden.
+        double sigma2 = Math.log(1.0 + CV2);
+        this.logSigma = Math.sqrt(sigma2);
+        this.logMu = (meanNanos > 0.0) ? Math.log(meanNanos) - sigma2 / 2.0 : 0.0;
+    }
+
+    public BusinessLogicModel(double meanMicros) {
+        this(meanMicros, Shape.MEZCLA);
     }
 
     public static BusinessLogicModel fromEnv() {
-        String value = System.getenv("BIZ_MICROS");
+        String micros = System.getenv("BIZ_MICROS");
+        String dist = System.getenv("BIZ_DIST");
+        Shape shape = (dist != null && dist.equalsIgnoreCase("lognormal"))
+                ? Shape.LOGNORMAL : Shape.MEZCLA;
         return new BusinessLogicModel(
-                (value == null || value.isBlank()) ? 0.0 : Double.parseDouble(value));
+                (micros == null || micros.isBlank()) ? 0.0 : Double.parseDouble(micros), shape);
     }
 
     /**
@@ -102,9 +146,23 @@ public final class BusinessLogicModel {
         if (unitNanos <= 0.0) {
             return;
         }
+        burn(sampleNanos());
+    }
+
+    /** Una muestra del costo de esta orden. NO es constante: esa es la razón de ser de la clase. */
+    private long sampleNanos() {
+        if (shape == Shape.LOGNORMAL) {
+            double sample = Math.exp(logMu + logSigma * random.nextGaussian());
+            double cap = meanNanos * MAX_SAMPLE_FACTOR;
+            if (sample > cap) {
+                clamped++;
+                sample = cap;
+            }
+            return (long) sample;
+        }
         double u = random.nextDouble();
         double factor = (u < 0.90) ? 1.0 : (u < 0.99) ? 6.0 : 30.0;
-        burn((long) (unitNanos * factor));
+        return (long) (unitNanos * factor);
     }
 
     /** Bucle de trabajo real, acotado por reloj monótono. */
@@ -130,10 +188,20 @@ public final class BusinessLogicModel {
         return enabled() ? 1_000_000_000.0 / meanNanos : Double.POSITIVE_INFINITY;
     }
 
+    /** Muestras recortadas por el tope. Distinto de 0 invalida el Cs² declarado. */
+    public long clampedSamples() {
+        return clamped;
+    }
+
     /** Descripción para el log de arranque: ninguna corrida debe ser ambigua. */
     public String describe() {
         if (!enabled()) {
             return "APAGADO (S=0) — se mide solo el patrón; el techo medido NO es el de un motor real";
+        }
+        if (shape == Shape.LOGNORMAL) {
+            return String.format(
+                    "lognormal media=%.0fus Cs2=%.2f sigma=%.4f (tope %.0fx) techo_teorico=%.0f ord/s",
+                    meanNanos / 1_000.0, CV2, logSigma, MAX_SAMPLE_FACTOR, ceilingOrdersPerSecond());
         }
         return String.format("mezcla 90/9/1 media=%.0fus Cs2=%.2f techo_teorico=%.0f ord/s",
                 meanNanos / 1_000.0, CV2, ceilingOrdersPerSecond());

@@ -221,7 +221,9 @@ xychart-beta
     line [27630, 27600, 27600]
 ```
 
-**El modelo de servicio reproduce la distribución que declara.** Con `unit = 8.000/1,74 = 4.598 µs`, la mezcla 90/9/1 aparece en tres percentiles distintos: p50 predicho 4.598 µs / medido 4.627; p95 predicho 27.586 / medido 27.615; p99 predicho 137.931 / medido 138.111. Consecuencia: **la clase pesada del 1 % cuesta 138 ms de servicio ella sola**, el 69 % del presupuesto sin nada de cola — por eso el p99 se pega a 140 ms aunque el p95 esté en 31.
+**El costo por orden es una distribución, no una constante.** `S = 8 ms` es la *media*: la mezcla 90/9/1 hace que una orden cueste 4,6, 27,6 o 138 ms según su clase, con Cs² = 3,34 (una constante daría 0; una exponencial, 1). Los tres valores aparecen en los percentiles medidos: p50 predicho 4.598 µs / medido 4.627; p95 predicho 27.586 / medido 27.615; p99 predicho 137.931 / medido 138.111. Consecuencia: **la clase pesada del 1 % cuesta 138 ms de servicio ella sola**, el 69 % del presupuesto sin nada de cola — por eso el p99 se pega a 140 ms aunque el p95 esté en 31.
+
+**Y el veredicto no depende de la forma elegida.** Repitiendo F2 con una lognormal continua y sin cota, construida con la misma media y el mismo Cs², el p95 pasa de 74,7 a 63,3 ms: ambos muy por debajo de los 200 ms del criterio, de modo que **la conclusión sobre ASR-03 es robusta a esa decisión de modelado**. La cola no lo es — el p99.9 sube un 23 % y una sola orden llegó a 369 ms de servicio, algo que la mezcla no puede producir porque está acotada en 30× la media. Detalle en la [evidencia de corridas](evidencia-corridas.html).
 
 ### Serie A — el patrón aislado (`S = 0`) · referencia
 
@@ -257,7 +259,7 @@ Ninguna era un error de medición: las cuatro eran correctas para lo que se midi
 
 **Conclusion:** **H1 y H2 se cumplen con el punto de operación declarado en 8 ms por orden** — ASR-02 con margen 6,3× y ASR-03 con margen 2,7×, bajo arribo estocástico y con el sharding balanceado y verificado en vivo. Los márgenes son sustancialmente menores que los de la Serie A (27× y 44×), y esa reducción es el resultado, no un deterioro: aquella serie medía un `TreeMap`.
 
-Dos salvedades vigentes. Ninguna evidencia respalda todavía la cláusula «sin exigir más de un núcleo por partición» de H2, porque **no se midió CPU por proceso** — y el hallazgo de que shardear rinde 1,49× en vez de 2× la vuelve urgente. Y el **p99.9 excede los 200 ms en el pico** (231 ms en F2+F3, 352 ms en F4): el contrato es sobre p95 y se cumple, pero si se endureciera a p99, S = 8 ms no alcanzaría.
+Dos salvedades vigentes. Ninguna evidencia respalda todavía la cláusula «sin exigir más de un núcleo por partición» de H2, porque **no se midió CPU por proceso** — y el hallazgo de que shardear rinde 1,49× en vez de 2× la vuelve urgente. Y el **p99.9 excede los 200 ms en el pico** (231 ms en F2+F3, 352 ms en F4): el contrato es sobre p95 y se cumple, pero si se endureciera a p99, S = 8 ms no alcanzaría. Esa cifra es además un **piso**: el A/B de forma muestra que con una distribución de servicio sin cota superior el mismo escenario empeora un 23 %.
 
 **H2b se confirmó.** Con la lógica apagada, F4 salía *más rápida* que F2 (4,00 contra 4,58 ms) y se concluyó que la hipótesis «no se manifestó». Con S = 8 ms, misma tasa y mismo costo por orden —lo único que cambia es la distribución de símbolos—, la partición caliente **duplica el p95**: 74,32 → 148,09 ms, con la espera pasando de 50,08 a 137,09 ms y el servicio invariante. Sigue cumpliendo el ASR, pero con 1,35× de margen en vez de los 50× que aparentaba. La hipótesis de mayor riesgo del experimento pasa de no observarse a estar **medida**.
 

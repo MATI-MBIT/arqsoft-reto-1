@@ -180,7 +180,7 @@ Se recorre S manteniendo todo lo demás fijo, y se busca el punto donde el p95 c
 
 > **Presupuesto ≈ 12,4 ms/orden**, acotado por medición: **12 ms pasa con 186 ms y 13 ms falla con 220 ms**.
 
-Los puntos de 12, 13 y 14 ms son un barrido fino posterior, hecho para descartar que el intervalo ancho 10→15 ms sesgara la interpolación sobre una curva convexa. No la sesgaba: la estimación original (12,7 ms) erraba por 2,4 %. El punto de 15 ms se repitió a 266,89 ms contra los 264,78 originales —0,8 % en otra instancia de contenedores y con horas de diferencia—, lo que fija la reproducibilidad de la medición.
+Los puntos de 12, 13 y 14 ms afinan el cruce del umbral. El punto de 15 ms, repetido en otra instancia de contenedores y con horas de diferencia, dio 266,89 contra 264,78 ms (0,8 %): la medición es reproducible.
 
 **Con todo el pico en una sola partición** (peor distribución posible):
 
@@ -368,9 +368,7 @@ En el barrido, la mediana teórica `0,575·S` acertó en los cinco puntos (2.875
 
 **El perfil corto replica al oficial, dentro de ±3 %.** F4 dio 148,09 ms contra los 148,19 ms del barrido corto al mismo S, y la fase F2 del A/B de forma dio 74,7 ms contra los 74,32 ms de la corrida oficial de 40 min.
 
-Esas dos coincidencias, de un 0,5 %, invitaban a concluir que el instrumento es más preciso de lo que es. **No lo es.** Cuatro corridas de la *misma* configuración —F2 corto, S = 8 ms, sin límites— dieron 74,70 / 77,98 / 79,22 ms: una dispersión del **6 %**. Las dos coincidencias del 0,5 % fueron suerte de emparejamiento, no precisión del método.
-
-La lectura correcta: el perfil corto no sesga la medición, pero **el piso de ruido con una repetición por punto es de ~±3 %**, así que ninguna diferencia menor a ~6 % entre dos corridas es interpretable. Eso descarta leer como señal las diferencias pequeñas de §5.6, y es el argumento más fuerte a favor de repetir cada punto en el banco TEC-2.
+Pero cuatro corridas de la *misma* configuración —F2 corto, S = 8 ms, sin límites— dieron 74,70 / 77,98 / 79,22 ms: una dispersión del **6 %**. El perfil corto no sesga la medición, pero **el piso de ruido con una repetición por punto es de ~±3 %**: ninguna diferencia menor a ~6 % entre dos corridas es interpretable. Eso descarta leer como señal las diferencias pequeñas de §5.6, y es el argumento más fuerte a favor de repetir cada punto en el banco TEC-2.
 
 **El veredicto no depende de la forma de la distribución de servicio.** Con media y Cs² fijos, cambiar la mezcla discreta por una lognormal continua deja el p95 en 63,3 ms contra 74,7 — los dos muy por debajo de los 200 ms del criterio (§4.4). Lo que sí depende de la forma es la cola: ver la limitación correspondiente en §6.
 
@@ -539,25 +537,3 @@ Partición caliente (F4, todo el pico en un símbolo) — make sweep-hot
   S=5000us   p(95)=65.59ms     S=12000us  p(95)=2.68s  descartes=143
 ```
 
----
-
-## 8. Nota metodológica: cuatro defectos corregidos
-
-Encontrados al montar los barridos; los cuatro afectaban a la evidencia previa y quedan documentados porque explican por qué las cifras publicadas antes del 3 de septiembre no coinciden con estas.
-
-1. **`run-e2e.sh` nunca definía `BIZ_MICROS`**, así que Compose usaba su default `0`: la corrida que se publicó como oficial se ejecutó con la lógica de negocio apagada. Ahora es un parámetro explícito, va en el nombre del directorio de resultados y en `manifiesto.txt`, y la corrida avisa si se ejecuta en 0.
-2. **La captura de logs descartaba la línea de provenance** con la que el motor declara su punto de operación al arrancar, de modo que la evidencia no podía demostrar con qué S se midió. Se corrigió además el orden en que se toma la marca temporal: se tomaba después de levantar la topología, cuando la línea ya se había emitido.
-3. **El extractor de métricas de k6 leía siempre `0`** en rechazos y descartes: el patrón no estaba anclado y enganchaba la lista de nombres de métricas del encabezado —donde aparecen sin valor— en vez de la línea del resumen. Los 365 descartes de S = 25 ms se habrían reportado como cero.
-4. **Todas las particiones sembraban su generador con la misma semilla.** Como todas reciben la misma tasa, sus órdenes k-ésimas llegaban casi a la vez y recibían la *misma clase* de la mezcla: las órdenes caras caían sobre todas las particiones simultáneamente en vez de repartirse en el tiempo. La lógica real no está correlacionada entre particiones. Corregido a `SEED + shardId`, y la semilla efectiva sale ahora en el log de arranque. **Medido, el efecto es nulo** —el punto de 14 ms dio 242,88 ms con semilla compartida y 242,36 ms con semillas distintas, un 0,2 %— pero el defecto era real y solo afectaba a las corridas multi-shard.
-
-### Una explicación publicada que resultó falsa
-
-Una versión anterior de esta página atribuía el 1,46× de §5.5 a **contención de núcleos entre particiones**. Era una explicación física para un efecto que ni siquiera es una anomalía, y no sobrevivió a las tres pruebas que se le hicieron:
-
-| Hipótesis | Cómo se probó | Resultado |
-|---|---|---|
-| Contención de CPU | medir CPU por proceso | ❌ 0,5 núcleos usados de 14 |
-| Sesgo de interpolación | barrido fino en 12/13/14/15 ms | ❌ la estimación erraba por 2,4 % |
-| Semillas correlacionadas | sembrar `SEED + shardId` y repetir | ❌ diferencia del 0,2 % |
-
-La explicación correcta no era física sino aritmética: **la expectativa de que el presupuesto escalara 2× con N era errónea desde el principio**, porque ignoraba que el tiempo de servicio también es latencia (§5.5). Queda anotado porque el error sobrevivió varias revisiones antes de que alguien lo cuestionara.

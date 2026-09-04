@@ -121,7 +121,11 @@ El modelo respeta dos reglas: **quema CPU en vez de dormir** (un `sleep` devuelv
 
 `BIZ_DIST=lognormal` ofrece una segunda forma, continua y **sin cota superior**, con la misma media y el mismo Cs² (la σ se deriva del Cs², no se expone: exponerla permitiría elegir la varianza que conviene al resultado). Existe para una sola pregunta: *¿el resultado depende de la forma, o solo de sus dos primeros momentos?* Medido, la respuesta es mixta — el p95 es robusto (74,7 vs 63,3 ms) pero la cola no (p99.9 +23 %), así que la mezcla **subestima el p99.9** por estar acotada.
 
-Resultados medidos (ver `evidencia-corridas.md`): **el presupuesto es ≈ 12,7 ms por orden** con el pico contractual repartido entre 2 particiones, y **≈ 8,5 ms** con todo el pico concentrado en una sola.
+Resultados medidos (ver `evidencia-corridas.md`): **el presupuesto es ≈ 12,4 ms por orden** con el pico contractual repartido entre 2 particiones, y **≈ 8,5 ms** con todo el pico concentrado en una sola.
+
+Esas dos cifras dan 1,46×, no 2×, y la razón es aritmética y no una ineficiencia: **shardear reduce la espera, nunca el servicio**. Repartir la carga baja ρ, pero el tiempo de servicio es latencia también y subir el presupuesto lo sube directo. Corolario de diseño: ninguna cantidad de particiones permite que una orden que cuesta 200 ms cumpla un SLA de 200 ms.
+
+La semilla del modelo es `42 + shardId`, **distinta por partición a propósito**: con una semilla común todas sacaban la misma secuencia de tiempos de servicio y, como reciben la misma tasa, las órdenes caras caían sobre todas simultáneamente en vez de repartirse en el tiempo. La lógica real no está correlacionada entre particiones. La semilla efectiva se imprime en el log de arranque.
 
 ## 7. Despliegue
 

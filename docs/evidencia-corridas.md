@@ -74,7 +74,7 @@ Se eligió **C**: el más exigente que sigue siendo arquitectónicamente plausib
 
 Y el resultado que no depende del S elegido:
 
-> **Presupuesto: 12,7 ms por orden** con el pico repartido entre 2 particiones; **8,5 ms** si todo el pico cae en una sola.
+> **Presupuesto: 12,4 ms por orden** con el pico repartido entre 2 particiones; **8,5 ms** si todo el pico cae en una sola.
 
 **Decisión:** ADOPTAR el patrón, con la condición explícita de verificar el costo real de la lógica de negocio contra ese presupuesto cuando exista.
 
@@ -170,11 +170,16 @@ Se recorre S manteniendo todo lo demás fijo, y se busca el punto donde el p95 c
 | 0 | ~0 | **6,31 ms** | 239 µs | 187 µs | 19 µs | 0 | ✅ |
 | 5 ms | 0,21 | **25,48 ms** | 22,45 ms | 13,69 ms | 2,88 ms | 0 | ✅ |
 | 10 ms | 0,42 | **126,65 ms** | 126,46 ms | 101,06 ms | 5,75 ms | 0 | ✅ |
+| **12 ms** | **0,50** | **186,02 ms** | 191,99 ms | 167,55 ms | 6,90 ms | 0 | ✅ |
+| **13 ms** | **0,55** | **219,58 ms** | 218,88 ms | 194,18 ms | 7,48 ms | 0 | ❌ |
+| 14 ms | 0,59 | **242,88 ms** | 242,82 ms | 222,46 ms | 8,05 ms | 0 | ❌ |
 | 15 ms | 0,63 | **264,78 ms** | 266,75 ms | 246,02 ms | 8,63 ms | 0 | ❌ |
 | 20 ms | 0,84 | **676,59 ms** | 717,31 ms | 692,22 ms | 11,50 ms | 0 | ❌ |
 | 25 ms | 1,05 | **5,48 s** | 6,11 s | 6,08 s | 14,38 ms | 365 | ❌ |
 
-> **Presupuesto ≈ 12,7 ms/orden**, interpolado entre el 10 ms que pasa con 127 ms y el 15 ms que falla con 265 ms.
+> **Presupuesto ≈ 12,4 ms/orden**, acotado por medición: **12 ms pasa con 186 ms y 13 ms falla con 220 ms**.
+
+Los puntos de 12, 13 y 14 ms son un barrido fino posterior, hecho para descartar que el intervalo ancho 10→15 ms sesgara la interpolación sobre una curva convexa. No la sesgaba: la estimación original (12,7 ms) erraba por 2,4 %. El punto de 15 ms se repitió a 266,89 ms contra los 264,78 originales —0,8 % en otra instancia de contenedores y con horas de diferencia—, lo que fija la reproducibilidad de la medición.
 
 **Con todo el pico en una sola partición** (peor distribución posible):
 
@@ -280,13 +285,40 @@ Con S = 0, F4 salía *más rápida* que F2 (4,00 contra 4,58 ms) y la hipótesis
 
 **Y el techo de una partición es `1/S` = 125 órd/s**, confirmado por saturación: ofreciendo 250, 500 y 1.000 órd/s el motor entregó 23.183, 23.983 y 24.345 órdenes. Cuadruplicar la carga entregó un 5 % más de trabajo; el resto se convirtió en descartes. El pico contractual ocupa el **67 % de una sola partición**. La cifra de «techo no alcanzado a 1.000 órd/s» de la corrida con S = 0 era una propiedad del `TreeMap`.
 
-### 5.5 Shardear rinde 1,49×, no 2×
+### 5.5 Shardear reduce la espera, nunca el servicio
 
-Repartir el mismo pico entre 2 particiones sube el presupuesto de 8,5 a 12,7 ms. La teoría de colas predice 2×; se obtuvo **1,49×**.
+El presupuesto crece con N pero **sub-linealmente**: 8,5 ms con todo el pico en una partición, 12,4 ms repartido entre dos. Eso es **1,46×**, no el 2× que sugiere repartir la carga a la mitad.
 
-La diferencia es contención: con S ≠ 0 las particiones **queman núcleo de verdad** y compiten entre sí, con el router y con el generador, dentro de la misma VM de Docker. El modelo supone servidores independientes; este montaje no lo son. Es evidencia cuantificada a favor de `cpuset` y del banco de tres nodos (TEC-2), que hasta ahora eran una nota al pie.
+**No es una pérdida de eficiencia: es aritmética del SLA.** Repartir la carga baja ρ y con ello la espera en cola, pero el tiempo de servicio **es latencia también**, y subir el presupuesto lo sube directamente. Con N=2 y S = 17 ms (el doble de 8,5) tendríamos ρ = 0,714, idéntico al del caso caliente — pero la latencia media sería 107 ms en lugar de 53, porque cada orden cuesta el doble. **Mismo ρ no significa misma latencia.**
 
-### 5.6 El instrumento es válido
+Los dos montajes están sobre la misma curva. La razón entre el p95 y la media cae al subir ρ, y el punto de partición caliente cae exactamente donde su ρ lo coloca:
+
+| Caso | ρ | Media (Kingman) | p95 medido | p95/media |
+|---|---|---|---|---|
+| N=2 · S=12 ms | 0,504 | 37,8 ms | 186,0 ms | 4,92 |
+| N=2 · S=13 ms | 0,546 | 46,1 ms | 219,6 ms | 4,77 |
+| N=2 · S=14 ms | 0,588 | 56,3 ms | 242,9 ms | 4,32 |
+| N=2 · S=15 ms | 0,630 | 69,0 ms | 266,9 ms | 3,87 |
+| N=2 · S=16 ms | 0,672 | 85,3 ms | 313,3 ms | 3,67 |
+| **caliente · S=8,5 ms** | **0,714** | **53,4 ms** | **200 ms** | **3,75** |
+
+A ρ bajo la cola la dicta la **distribución del servicio** (Cs² = 3,34, con una clase 30× más cara que la mediana); a ρ alto la dicta el **encolamiento**, que la suaviza. No hay dos regímenes distintos: es el mismo sistema en dos puntos de la misma curva.
+
+> **Corolario práctico:** ninguna cantidad de particiones permite que una orden que cuesta 200 ms cumpla un SLA de 200 ms. A medida que S se acerca al presupuesto, shardear deja de comprar nada. Sharding es la herramienta contra la **espera**, no contra el **costo por orden**.
+
+### 5.6 Una partición nunca pidió más de un núcleo
+
+H2 afirma que el patrón sostiene el ASR «sin exigir más de un núcleo por partición». Medido durante F2 con S = 8 ms, muestreando cada contenedor cada 2 s (100 % = un núcleo):
+
+| Contenedor | CPU media en el pico | CPU máx |
+|---|---|---|
+| `matching-shard-0` | 23,6 % | 58,3 % |
+| `matching-shard-1` | 23,6 % | 46,9 % |
+| `ingest-router` | 3,2 % | 13,4 % |
+
+**La cláusula se cumple, y por una razón estructural.** A 42 órd/s por partición con 8 ms por orden, el trabajo es 336 ms de CPU por segundo = 33,6 % de un núcleo. Extrapolando a las 125 órd/s del techo `1/S`, daría exactamente **100 %**. Es decir: **el techo de throughput y el límite de un núcleo por partición son el mismo hecho**. En un diseño de único escritor, saturar el hilo *es* saturar un núcleo. H2 no se cumple por suerte: se cumple por construcción.
+
+### 5.7 El instrumento es válido
 
 Tres verificaciones independientes:
 
@@ -306,7 +338,7 @@ En el barrido, la mediana teórica `0,575·S` acertó en los cinco puntos (2.875
 
 **El veredicto no depende de la forma de la distribución de servicio.** Con media y Cs² fijos, cambiar la mezcla discreta por una lognormal continua deja el p95 en 63,3 ms contra 74,7 — los dos muy por debajo de los 200 ms del criterio (§4.4). Lo que sí depende de la forma es la cola: ver la limitación correspondiente en §6.
 
-### 5.7 Consecuencia: la latencia deja de mejorar con la carga
+### 5.8 Consecuencia: la latencia deja de mejorar con la carga
 
 Con S = 0 el p95 **caía** al subir la tasa (7,54 → 1,20 ms): con 13 µs de trabajo por evento, más ráfaga significa más eventos por pasada del único escritor y datos calientes en caché, sin cola que pagar — lo contrario de un sistema con locks. El efecto es real y tiene mecanismo, pero **solo es visible cuando el trabajo por evento es despreciable**. Con S = 8 ms queda sepultado por el encolamiento y el sistema se comporta como predice la teoría: 31,5 → 74,3 → 148,1 ms.
 
@@ -314,19 +346,21 @@ Con S = 0 el p95 **caía** al subir la tasa (7,54 → 1,20 ms): con 13 µs de tr
 
 ## 6. Limitaciones
 
-**Del entorno.** Una sola máquina, macOS con Docker en VM y **sin `cpuset`**: el modelo de servicio quema CPU compitiendo con k6 y el router. Sin la red real del banco TEC-2. Una sola repetición por punto, sin intervalos de confianza. El hallazgo 5.5 predice que en Linux con núcleos dedicados el presupuesto saldría mayor: **las cifras son cotas inferiores conservadoras**.
+**Del entorno.** Una sola máquina, macOS con Docker en VM y **sin `cpuset`**. Sin la red real del banco TEC-2. Una sola repetición por punto, sin intervalos de confianza.
+
+La medición de CPU (§5.6) acota cuánto puede importar: con los dos shards y el router usando ~0,5 núcleos de los 14 disponibles, **no hay escasez agregada de CPU**, así que la contención entre procesos no puede ser un factor grande. Queda un mecanismo residual no medido: el host es Apple Silicon con 10 núcleos de rendimiento y 4 de eficiencia, y sin `cpuset` nada impide que el hilo escritor caiga en uno de eficiencia. Eso afectaría al tiempo de servicio, no a la capacidad agregada.
 
 **Del alcance.** Tres cosas declaradas en el diseño y no implementadas, que dejan afirmaciones sin evidencia:
 
 | Sin implementar | Qué queda sin probar |
 |---|---|
 | **Journaling** | la cláusula de H1 sobre mantenerlo fuera del camino crítico |
-| **CPU por proceso** | la cláusula de H2 sobre no exigir más de un núcleo por partición — el hallazgo 5.5 la vuelve urgente |
+| ~~CPU por proceso~~ | ✅ **medido** (§5.6): 23,6 % de un núcleo en media, 58,3 % máximo. La cláusula de H2 queda respaldada |
 | **JFR** | atribuir los atascos aislados a GC, JIT o contención del host |
 
 **De la interpretación.** Dos advertencias sobre el veredicto:
 
-- **S = 8 ms es una hipótesis, no una medición.** Es el escenario C estimado, no el costo de una lógica de negocio real que el PoC no implementa. Lo que la corrida demuestra es que *si* el costo por orden fuera de 8 ms, el ASR se cumple. El número a verificar cuando la lógica exista sigue siendo el presupuesto de 12,7 ms.
+- **S = 8 ms es una hipótesis, no una medición.** Es el escenario C estimado, no el costo de una lógica de negocio real que el PoC no implementa. Lo que la corrida demuestra es que *si* el costo por orden fuera de 8 ms, el ASR se cumple. El número a verificar cuando la lógica exista sigue siendo el presupuesto de 12,4 ms.
 - **El p99.9 excede el SLA en el pico, y la cifra medida es un piso**: 231 ms en F2+F3 y 352 ms en F4, contra 200 ms. El contrato es sobre p95 y se cumple, pero una de cada mil órdenes lo excede. Viene de la clase pesada del modelo —138 ms de servicio ella sola— sumada a la cola. Dos advertencias: si el contrato se endureciera a p99, S = 8 ms no alcanzaría; y como la mezcla está **acotada por construcción** en 30× la media, el A/B de forma (§4.4) muestra que con una distribución sin cota el mismo escenario da **+23 %**. La magnitud de esta violación depende de una decisión de modelado que no está medida contra la lógica real.
 
 ---
@@ -453,3 +487,16 @@ Encontrados al montar el barrido; los tres afectaban a la evidencia previa y que
 1. **`run-e2e.sh` nunca definía `BIZ_MICROS`**, así que Compose usaba su default `0`: la corrida que se publicó como oficial se ejecutó con la lógica de negocio apagada. Ahora es un parámetro explícito, va en el nombre del directorio de resultados y en `manifiesto.txt`, y la corrida avisa si se ejecuta en 0.
 2. **La captura de logs descartaba la línea de provenance** con la que el motor declara su punto de operación al arrancar, de modo que la evidencia no podía demostrar con qué S se midió. Se corrigió además el orden en que se toma la marca temporal: se tomaba después de levantar la topología, cuando la línea ya se había emitido.
 3. **El extractor de métricas de k6 leía siempre `0`** en rechazos y descartes: el patrón no estaba anclado y enganchaba la lista de nombres de métricas del encabezado —donde aparecen sin valor— en vez de la línea del resumen. Los 365 descartes de S = 25 ms se habrían reportado como cero.
+4. **Todas las particiones sembraban su generador con la misma semilla.** Como todas reciben la misma tasa, sus órdenes k-ésimas llegaban casi a la vez y recibían la *misma clase* de la mezcla: las órdenes caras caían sobre todas las particiones simultáneamente en vez de repartirse en el tiempo. La lógica real no está correlacionada entre particiones. Corregido a `SEED + shardId`, y la semilla efectiva sale ahora en el log de arranque. **Medido, el efecto es nulo** —el punto de 14 ms dio 242,88 ms con semilla compartida y 242,36 ms con semillas distintas, un 0,2 %— pero el defecto era real y solo afectaba a las corridas multi-shard.
+
+### Una explicación publicada que resultó falsa
+
+Una versión anterior de esta página atribuía el 1,46× de §5.5 a **contención de núcleos entre particiones**. Era una explicación física para un efecto que ni siquiera es una anomalía, y no sobrevivió a las tres pruebas que se le hicieron:
+
+| Hipótesis | Cómo se probó | Resultado |
+|---|---|---|
+| Contención de CPU | medir CPU por proceso | ❌ 0,5 núcleos usados de 14 |
+| Sesgo de interpolación | barrido fino en 12/13/14/15 ms | ❌ la estimación erraba por 2,4 % |
+| Semillas correlacionadas | sembrar `SEED + shardId` y repetir | ❌ diferencia del 0,2 % |
+
+La explicación correcta no era física sino aritmética: **la expectativa de que el presupuesto escalara 2× con N era errónea desde el principio**, porque ignoraba que el tiempo de servicio también es latencia (§5.5). Queda anotado porque el error sobrevivió varias revisiones antes de que alguien lo cuestionara.

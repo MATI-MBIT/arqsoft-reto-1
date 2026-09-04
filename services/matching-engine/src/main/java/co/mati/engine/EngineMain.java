@@ -53,7 +53,7 @@ public final class EngineMain {
         Histogram serviceCumulative = new Histogram(3);
         Object drainLock = new Object();
 
-        BusinessLogicModel businessLogic = BusinessLogicModel.fromEnv();
+        BusinessLogicModel businessLogic = BusinessLogicModel.fromEnv(shardId);
 
         ThreadFactory matcherThreadFactory = r -> {
             Thread t = new Thread(r, "matcher-shard-" + shardId);

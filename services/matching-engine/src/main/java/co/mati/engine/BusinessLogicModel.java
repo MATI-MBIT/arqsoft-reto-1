@@ -75,9 +75,21 @@ public final class BusinessLogicModel {
     }
 
     /**
-     * Semilla fija: sobre las ~10⁵ órdenes de una corrida los percentiles
-     * agregados no dependen de la semilla, así que exponerla solo agregaría una
-     * perilla; fijarla mantiene las corridas reproducibles.
+     * Semilla base. La efectiva es {@code SEED + shardId}: <b>cada partición debe
+     * sacar una secuencia distinta</b>.
+     *
+     * <p>Con una semilla común todos los shards sacaban la MISMA secuencia de
+     * tiempos de servicio. Como todos reciben la misma tasa, sus órdenes k-ésimas
+     * llegan casi a la vez, así que las órdenes caras de la clase pesada caían
+     * sobre todas las particiones <i>simultáneamente</i> en vez de repartirse en
+     * el tiempo. Eso sincroniza la congestión y engorda la cola del p95 agregado:
+     * en vez de que la mitad del tráfico encuentre siempre una partición
+     * despejada, hay instantes en que ninguna lo está.
+     *
+     * <p>La lógica de negocio real no está correlacionada entre particiones, así
+     * que era un artefacto del banco de pruebas — y uno que solo afecta a las
+     * corridas multi-shard, no a las de partición caliente. Sesgaba a la baja
+     * justamente el presupuesto de N&gt;1.
      */
     private static final long SEED = 42L;
 
@@ -97,6 +109,9 @@ public final class BusinessLogicModel {
      */
     private static final double MAX_SAMPLE_FACTOR = 100.0;
 
+    /** Partición a la que pertenece este modelo: decide la semilla. */
+    private final int shardId;
+
     /** Costo de la clase barata, en nanosegundos. 0 = modelo apagado. */
     private final double unitNanos;
     private final double meanNanos;
@@ -104,7 +119,7 @@ public final class BusinessLogicModel {
     /** Parámetros de la lognormal, derivados de la media y del Cs² de la mezcla. */
     private final double logMu;
     private final double logSigma;
-    private final SplittableRandom random = new SplittableRandom(SEED);
+    private final SplittableRandom random;
 
     /** Muestras recortadas por {@link #MAX_SAMPLE_FACTOR}. Debe quedar en 0. */
     private long clamped;
@@ -112,7 +127,9 @@ public final class BusinessLogicModel {
     /** Acumulador del trabajo quemado: impide que el JIT elimine el bucle. */
     private long sink;
 
-    public BusinessLogicModel(double meanMicros, Shape shape) {
+    public BusinessLogicModel(double meanMicros, Shape shape, int shardId) {
+        this.shardId = shardId;
+        this.random = new SplittableRandom(SEED + shardId);
         this.meanNanos = Math.max(0.0, meanMicros) * 1_000.0;
         this.unitNanos = meanNanos / MEAN_FACTOR;
         this.shape = shape;
@@ -124,17 +141,22 @@ public final class BusinessLogicModel {
         this.logMu = (meanNanos > 0.0) ? Math.log(meanNanos) - sigma2 / 2.0 : 0.0;
     }
 
-    public BusinessLogicModel(double meanMicros) {
-        this(meanMicros, Shape.MEZCLA);
+    public BusinessLogicModel(double meanMicros, Shape shape) {
+        this(meanMicros, shape, 0);
     }
 
-    public static BusinessLogicModel fromEnv() {
+    public BusinessLogicModel(double meanMicros) {
+        this(meanMicros, Shape.MEZCLA, 0);
+    }
+
+    public static BusinessLogicModel fromEnv(int shardId) {
         String micros = System.getenv("BIZ_MICROS");
         String dist = System.getenv("BIZ_DIST");
         Shape shape = (dist != null && dist.equalsIgnoreCase("lognormal"))
                 ? Shape.LOGNORMAL : Shape.MEZCLA;
         return new BusinessLogicModel(
-                (micros == null || micros.isBlank()) ? 0.0 : Double.parseDouble(micros), shape);
+                (micros == null || micros.isBlank()) ? 0.0 : Double.parseDouble(micros),
+                shape, shardId);
     }
 
     /**
@@ -200,11 +222,12 @@ public final class BusinessLogicModel {
         }
         if (shape == Shape.LOGNORMAL) {
             return String.format(
-                    "lognormal media=%.0fus Cs2=%.2f sigma=%.4f (tope %.0fx) techo_teorico=%.0f ord/s",
-                    meanNanos / 1_000.0, CV2, logSigma, MAX_SAMPLE_FACTOR, ceilingOrdersPerSecond());
+                    "lognormal media=%.0fus Cs2=%.2f sigma=%.4f (tope %.0fx) semilla=%d techo_teorico=%.0f ord/s",
+                    meanNanos / 1_000.0, CV2, logSigma, MAX_SAMPLE_FACTOR, SEED + shardId,
+                    ceilingOrdersPerSecond());
         }
-        return String.format("mezcla 90/9/1 media=%.0fus Cs2=%.2f techo_teorico=%.0f ord/s",
-                meanNanos / 1_000.0, CV2, ceilingOrdersPerSecond());
+        return String.format("mezcla 90/9/1 media=%.0fus Cs2=%.2f semilla=%d techo_teorico=%.0f ord/s",
+                meanNanos / 1_000.0, CV2, SEED + shardId, ceilingOrdersPerSecond());
     }
 
     /** Solo para que el acumulador sea observable y el bucle no sea código muerto. */

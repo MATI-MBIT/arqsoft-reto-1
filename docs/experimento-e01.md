@@ -57,7 +57,7 @@ flowchart LR
 
 ### Design Hypothesis
 
-**H1 — Latencia (ASR-02):** si el motor implementa el patrón LMAX —libro de órdenes en memoria por activo y un único hilo escritor por partición, alimentado por un ring buffer (Disruptor), con journaling y notificación asíncronos fuera del camino crítico—, entonces se cumple la medida del escenario Critical de latencia enlazado abajo, bajo la carga de su Ambiente A. La razón: el procesamiento secuencial en memoria elimina bloqueos y contención.
+**H1 — Latencia (ASR-02):** si el motor implementa el patrón LMAX, entonces se cumple la medida del escenario Critical de latencia enlazado abajo bajo la carga de su Ambiente A. El patrón, en concreto: libro de órdenes en memoria por activo, un único hilo escritor por partición alimentado por un ring buffer (Disruptor), y journaling y notificación fuera del camino crítico. La razón: el procesamiento secuencial en memoria elimina bloqueos y contención.
 
 ```mermaid
 flowchart LR
@@ -68,7 +68,7 @@ flowchart LR
     W -.->|"asíncrono, fuera\ndel camino crítico"| J["journaling +\nnotificación"]
 ```
 
-**H2 — Escalabilidad transitoria (ASR-03):** si la ingesta gRPC enruta cada orden por sharding determinístico (hash del símbolo % N) hacia N shards LMAX independientes, con cola acotada como amortiguación, entonces se cumple la medida del escenario Critical de escalabilidad enlazado abajo durante toda la ventana de pico de su Ambiente B — siempre que la carga se reparta entre varios activos. La razón: el throughput total crece agregando shards, sin exigir más de un núcleo por partición. El experimento debe hallar además el **N mínimo** que satisface el contrato.
+**H2 — Escalabilidad transitoria (ASR-03):** si la ingesta enruta cada orden por sharding determinístico hacia N shards LMAX independientes, entonces se cumple la medida del escenario Critical de escalabilidad enlazado abajo. El hash del símbolo % N decide la partición, y una cola acotada amortiza las ráfagas. Vale durante toda la ventana de pico de su Ambiente B, y siempre que la carga se reparta entre varios activos. La razón: el throughput total crece agregando shards, sin exigir más de un núcleo por partición. El experimento debe hallar además el **N mínimo** que satisface el contrato.
 
 ```mermaid
 flowchart TB
@@ -78,7 +78,7 @@ flowchart TB
     RT -->|"~1/N de la carga"| SC["shard-N…\n+ shards = + throughput"]
 ```
 
-**H2b — Partición caliente (exploratoria, subordinada a H2):** si el pico se concentra al 100 % en un solo activo, la medida del escenario deja de cumplirse antes de alcanzar el pico de Ambiente B, porque el techo de un shard es un solo núcleo por diseño. La Fase 4 busca ese punto de quiebre, no un aprobado o reprobado. *Veredicto: se manifiesta — la partición caliente duplica el p95 (ver Results).*
+**H2b — Partición caliente (exploratoria, subordinada a H2):** si el pico se concentra al 100 % en un solo activo, la medida del escenario deja de cumplirse antes de alcanzar el pico de Ambiente B. La razón: el techo de un shard es un solo núcleo por diseño. La Fase 4 busca ese punto de quiebre, no un aprobado o reprobado. *Veredicto: se manifiesta — la partición caliente duplica el p95 (ver Results).*
 
 ```mermaid
 flowchart TB
@@ -122,7 +122,15 @@ flowchart LR
 
 Tácticas de latencia: datos del camino crítico en memoria; sin bloqueos ni contención; journaling y notificación asíncronos. Tácticas de escalabilidad: particionamiento por activo y cola acotada con backpressure — se prefiere frenar la entrada antes que prometer una latencia incumplible.
 
-Alternativas descartadas: pool de workers con colas bloqueantes (reintroduce la contención); locks por nivel de precio (deadlocks, latencia impredecible); PostgreSQL con `SELECT FOR UPDATE` (línea base de comparación); modelo de actores (overhead de mailbox); bloqueo distribuido (salto de red en el camino crítico).
+Alternativas descartadas, con su motivo:
+
+| Alternativa | Por qué se descarta |
+|---|---|
+| Pool de workers con colas bloqueantes | reintroduce la contención |
+| Locks por nivel de precio | deadlocks y latencia impredecible |
+| PostgreSQL con `SELECT FOR UPDATE` | queda como línea base de comparación |
+| Modelo de actores | overhead de mailbox |
+| Bloqueo distribuido | salto de red en el camino crítico |
 
 ### Experiment Design
 
@@ -210,7 +218,7 @@ xychart-beta
     bar [31.51, 74.32, 148.09]
 ```
 
-**Analysis of results.** Los dos relojes miden el mismo estadístico en dos puntos, así que su resta atribuye el tiempo: **el motor explica del 88 % al 99 % de la latencia**; el transporte es ruido. El **servicio no depende de la carga** (27,60 ms de p95 en las seis fases) **y la espera sí** — toda la degradación entra por la cola, y esa separación es la que decide entre abaratar la orden y agregar particiones.
+**Analysis of results.** Los dos relojes miden el mismo estadístico en dos puntos, así que su resta atribuye el tiempo: **el motor explica del 88 % al 99 % de la latencia**; el transporte es ruido. El **servicio no depende de la carga** (27,60 ms de p95 en las seis fases) **y la espera sí**: toda la degradación entra por la cola. Esa separación es la que decide entre abaratar la orden y agregar particiones.
 
 ```mermaid
 xychart-beta
@@ -234,13 +242,18 @@ Con la lógica de negocio apagada el motor solo ejecuta un `match()` de ~13 µs:
 | F4 | 84/s en 1 símbolo | 4,00 ms | sin degradación |
 | F4-explore | 250/500/1000 por s | 3,54 / 2,03 / 1,20 ms | techo no alcanzado |
 
-Lo que esta corrida establece: el patrón cuesta microsegundos y el 76 % es despertar al hilo escritor (`BlockingWaitStrategy` — la palanca de latencia que queda cuando la lógica es barata); F3 drena por debajo del baseline (137 µs contra 203); el aislamiento del sharding quedó verificado en vivo (0 violaciones sobre 179.669 órdenes); y existen atascos aislados de cientos de milisegundos que sin JFR no tienen causa atribuible.
+Lo que esta corrida establece:
+
+- El patrón cuesta microsegundos, y el **76 % es despertar al hilo escritor** bajo `BlockingWaitStrategy` — la palanca de latencia que queda cuando la lógica es barata.
+- **F3 drena por debajo del baseline**: 137 µs de espera interna contra 203 en F1.
+- El **aislamiento del sharding** quedó verificado en vivo: 0 violaciones sobre 179.669 órdenes.
+- Existen **atascos aislados de cientos de milisegundos** sin causa atribuida.
 
 **Links & evidence:** [Repositorio](https://github.com/MATI-MBIT/arqsoft-reto-1) · [Sitio de documentación](https://mati-mbit.github.io/arqsoft-reto-1/) · [Evidencia de corridas](https://mati-mbit.github.io/arqsoft-reto-1/evidencia-corridas.html).
 
 **Conclusion:**
 
-**H1 y H2 se cumplen con S = 8 ms** — márgenes 6,3× y 2,7×, arribo estocástico, sharding balanceado y verificado. La cláusula «sin exigir más de un núcleo por partición» quedó respaldada por medición (23,6 % de un núcleo en media; con cuota de `cpus=1.0` el p95 no cambia) y por estructura: a las 125 órd/s del techo `1/S`, el trabajo ocupa exactamente el 100 % de un núcleo — el techo de throughput y el límite de un núcleo son el mismo hecho.
+**H1 y H2 se cumplen con S = 8 ms** — márgenes 6,3× y 2,7×, arribo estocástico, sharding balanceado y verificado. La cláusula «sin exigir más de un núcleo por partición» quedó respaldada por medición: 23,6 % de un núcleo en media, y con cuota de `cpus=1.0` el p95 no cambia. Y también por estructura, porque a las 125 órd/s del techo `1/S` el trabajo ocupa exactamente el 100 % de un núcleo. **El techo de throughput y el límite de un núcleo son el mismo hecho.**
 
 **El journaling sale del camino crítico, y ahora hay número.** Como consumidor paralelo del ring cuesta el 0,9 % de la latencia mediana del motor; encadenado antes del matcher, el 26,5 %. Un factor de 29× entre las dos disposiciones. Dos matices. El journal no es barato —516 µs por orden, el 11 % del servicio—: lo probado es que no está en el camino crítico, que es otra afirmación. Y el `force()` por lote no se amortiza a 42 órd/s, porque el journaler nunca se rezaga: paga un fsync entero por orden.
 
@@ -250,6 +263,6 @@ Lo que esta corrida establece: el patrón cuesta microsegundos y el 76 % es desp
 
 > **Shardear reduce la espera, nunca el servicio.** Ninguna cantidad de particiones permite que una orden que cuesta 200 ms cumpla un SLA de 200 ms.
 
-Queda abierto el **p99.9, que excede los 200 ms en el pico** (231 ms en F2+F3, 352 en F4): el contrato es sobre p95 y se cumple, pero si se endureciera a p99, S = 8 ms no alcanzaría — y la cifra es un piso, porque la mezcla está acotada y la lógica real no lo estará.
+Queda abierto el **p99.9, que excede los 200 ms en el pico**: 231 ms en F2+F3 y 352 en F4. El contrato es sobre p95 y se cumple, pero si se endureciera a p99, S = 8 ms no alcanzaría. Y la cifra es un piso: la mezcla está acotada y la lógica real no lo estará.
 
 **Architectural Decision (Paso 8 de ADD):** **ADOPTAR** LMAX + sharding determinístico por activo + cola acotada con backpressure como arquitectura del motor. La Iteración 1 cierra cuando el equipo verifique el presupuesto (12,4 ms con N=2; 8,5 ms en partición caliente) contra el costo real de la lógica de negocio. Deuda y trabajo futuro: repetir el diseño en TEC-2 con red real; re-evaluar la estrategia de espera del Disruptor con datos; siguiente experimento candidato: E02 — fan-out de notificaciones (ASR-04).

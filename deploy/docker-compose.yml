@@ -30,8 +30,12 @@ services:
       # mantenerlo fuera del camino critico (ver JournalHandler).
       JOURNAL: "${JOURNAL:-off}"
       JOURNAL_DIR: "/var/lib/engine/journal"
+      # Java Flight Recorder. Vacio = apagado. Se ANEXA a JAVA_OPTS (ver Dockerfile),
+      # asi que no pisa ZGC. Lo enciende `make profile-jfr`.
+      JFR_OPTS: "${JFR_OPTS:-}"
     volumes:
       - journal-0:/var/lib/engine/journal
+      - jfr-0:/var/lib/engine/jfr
     # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
     # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
     # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
@@ -59,8 +63,12 @@ services:
       # mantenerlo fuera del camino critico (ver JournalHandler).
       JOURNAL: "${JOURNAL:-off}"
       JOURNAL_DIR: "/var/lib/engine/journal"
+      # Java Flight Recorder. Vacio = apagado. Se ANEXA a JAVA_OPTS (ver Dockerfile),
+      # asi que no pisa ZGC. Lo enciende `make profile-jfr`.
+      JFR_OPTS: "${JFR_OPTS:-}"
     volumes:
       - journal-1:/var/lib/engine/journal
+      - jfr-1:/var/lib/engine/jfr
     # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
     # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
     # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
@@ -89,8 +97,12 @@ services:
       # mantenerlo fuera del camino critico (ver JournalHandler).
       JOURNAL: "${JOURNAL:-off}"
       JOURNAL_DIR: "/var/lib/engine/journal"
+      # Java Flight Recorder. Vacio = apagado. Se ANEXA a JAVA_OPTS (ver Dockerfile),
+      # asi que no pisa ZGC. Lo enciende `make profile-jfr`.
+      JFR_OPTS: "${JFR_OPTS:-}"
     volumes:
       - journal-2:/var/lib/engine/journal
+      - jfr-2:/var/lib/engine/jfr
     # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
     # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
     # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
@@ -119,8 +131,12 @@ services:
       # mantenerlo fuera del camino critico (ver JournalHandler).
       JOURNAL: "${JOURNAL:-off}"
       JOURNAL_DIR: "/var/lib/engine/journal"
+      # Java Flight Recorder. Vacio = apagado. Se ANEXA a JAVA_OPTS (ver Dockerfile),
+      # asi que no pisa ZGC. Lo enciende `make profile-jfr`.
+      JFR_OPTS: "${JFR_OPTS:-}"
     volumes:
       - journal-3:/var/lib/engine/journal
+      - jfr-3:/var/lib/engine/jfr
     # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
     # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
     # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
@@ -150,3 +166,7 @@ volumes:
   journal-1:
   journal-2:
   journal-3:
+  jfr-0:
+  jfr-1:
+  jfr-2:
+  jfr-3:

@@ -14,4 +14,6 @@ ENV SERVICE_NAME=${SERVICE}
 # ZGC (D-02): pausas de GC sub-milisegundo — la causa #1 de cola larga según el análisis.
 ENV JAVA_OPTS="-XX:+UseZGC -XX:+ZGenerational -Xms256m -Xmx512m"
 COPY --from=build /src/services/${SERVICE}/build/install/${SERVICE} /app
-ENTRYPOINT ["/bin/sh", "-c", "JAVA_OPTS=\"$JAVA_OPTS\" exec /app/bin/$SERVICE_NAME"]
+# JFR_OPTS se ANEXA a JAVA_OPTS en vez de reemplazarlo: sustituir la cadena
+# entera apagaria ZGC sin avisar, y la corrida perfilada mediria otro colector.
+ENTRYPOINT ["/bin/sh", "-c", "JAVA_OPTS=\"$JAVA_OPTS $JFR_OPTS\" exec /app/bin/$SERVICE_NAME"]

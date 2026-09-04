@@ -40,7 +40,7 @@ La solución es tratar ese costo como **parámetro declarado del experimento** �
 
 Esa afirmación es falsable sin conocer todavía la lógica real: cuando exista, se mide su costo y se compara.
 
-**S es una media, no el costo de cada orden.** La lógica de negocio real no responde siempre igual: la mayoría de las órdenes son límite baratas que no cruzan, unas pocas barren varios niveles y generan varios trades, y una fracción mínima dispara cascadas. El modelo (`BusinessLogicModel`) reproduce esa forma con una **mezcla de tres clases** — 90 % ×1, 9 % ×6, 1 % ×30 — que a S = 8 ms significa que **una orden cuesta 4,6 / 27,6 / 138 ms según su clase**, con un Cs² de 3,34. Una constante daría Cs² = 0 y una exponencial 1: el modelo es *más* variable que una exponencial, que es lo que un motor real exhibe.
+**S es una media, no el costo de cada orden.** La lógica de negocio real no responde siempre igual: la mayoría de las órdenes son límite baratas que no cruzan, unas pocas barren varios niveles y generan varios trades, y una fracción mínima dispara cascadas. El modelo (`BusinessLogicModel`) reproduce esa forma con una **mezcla de tres clases**: 90 % ×1, 9 % ×6, 1 % ×30, con un Cs² de 3,34. A S = 8 ms eso significa que **una orden cuesta 4,6, 27,6 o 138 ms según su clase**. Una constante daría Cs² = 0 y una exponencial 1: el modelo es *más* variable que una exponencial, que es lo que un motor real exhibe.
 
 La variable `BIZ_DIST` permite además cambiar la **forma** de esa distribución manteniendo media y Cs² —ver §4.4—, para verificar que el resultado no dependa de esa elección de modelado.
 
@@ -379,7 +379,7 @@ Los tres primeros puntos están dentro del ±3 % de ruido de §5.7 —el de 1,0 
 | `servicio max` | 138.239 µs | **200.063 µs** | +45 % |
 | `espera p95` | 53.695 µs | **107.967 µs** | ×2,0 |
 
-El máximo que el modelo puede generar es 137.931 µs; sin límite el `servicio max` queda en 138.239, apenas 300 µs por encima. Estrangulado sube a 200.063: **62 ms de throttling puro sobre una sola orden.** El CFS suspende el proceso por lo que resta de su período de 100 ms, así que las órdenes baratas (4,6 ms) caben dentro de un período y casi nunca lo pagan —de ahí que p50 y p95 no se muevan— mientras las de 138 ms cruzan varios y sí. Y como el hilo recibe menos CPU en total, la cola drena más lento y la espera se duplica.
+El máximo que el modelo puede generar es 137.931 µs; sin límite el `servicio max` queda en 138.239, apenas 300 µs por encima. Estrangulado sube a 200.063: **62 ms de throttling puro sobre una sola orden.** El CFS suspende el proceso por lo que resta de su período de 100 ms. Las órdenes baratas (4,6 ms) caben dentro de un período y casi nunca lo pagan, de ahí que p50 y p95 no se muevan; las de 138 ms cruzan varios y sí. Y como el hilo recibe menos CPU en total, la cola drena más lento y la espera se duplica.
 
 Consecuencia para el dimensionamiento: **una cuota de un núcleo por partición es suficiente y media es insuficiente**, con el punto de quiebre entre ambas y más cerca de 0,5 que de 1,0.
 
@@ -397,7 +397,7 @@ Tres verificaciones independientes:
 
 En el barrido, la mediana teórica `0,575·S` acertó en los cinco puntos (2.875/2.883, 5.750/5.751, 8.625/8.631, 11.500/11.503, 14.375/14.375).
 
-**El tiempo de servicio no se contamina con la carga.** `servicio p95` se mantiene entre 27,60 y 27,63 ms en las seis fases de la corrida oficial, con la tasa variando de 17 a 1.000 órd/s y la distribución pasando de 36 símbolos a uno solo — incluso en saturación completa con la cola en 7 segundos.
+**El tiempo de servicio no se contamina con la carga.** `servicio p95` se mantiene entre 27,60 y 27,63 ms en las seis fases de la corrida oficial. La tasa varía de 17 a 1.000 órd/s y la distribución pasa de 36 símbolos a uno solo, incluso en saturación completa con la cola en 7 segundos.
 
 **El perfil corto replica al oficial, dentro de ±3 %.** F4 dio 148,09 ms contra los 148,19 ms del barrido corto al mismo S, y la fase F2 del A/B de forma dio 74,7 ms contra los 74,32 ms de la corrida oficial de 40 min.
 
@@ -407,7 +407,7 @@ Pero cuatro corridas de la *misma* configuración —F2 corto, S = 8 ms, sin lí
 
 ### 5.8 Consecuencia: la latencia deja de mejorar con la carga
 
-Con S = 0 el p95 **caía** al subir la tasa (7,54 → 1,20 ms): con 13 µs de trabajo por evento, más ráfaga significa más eventos por pasada del único escritor y datos calientes en caché, sin cola que pagar — lo contrario de un sistema con locks. El efecto es real y tiene mecanismo, pero **solo es visible cuando el trabajo por evento es despreciable**. Con S = 8 ms queda sepultado por el encolamiento y el sistema se comporta como predice la teoría: 31,5 → 74,3 → 148,1 ms.
+Con S = 0 el p95 **caía** al subir la tasa: 7,54 → 1,20 ms. Con 13 µs de trabajo por evento, más ráfaga significa más eventos por pasada del único escritor y datos calientes en caché, sin cola que pagar — lo contrario de un sistema con locks. El efecto es real y tiene mecanismo, pero **solo es visible cuando el trabajo por evento es despreciable**. Con S = 8 ms queda sepultado por el encolamiento y el sistema se comporta como predice la teoría: 31,5 → 74,3 → 148,1 ms.
 
 ---
 
@@ -415,9 +415,9 @@ Con S = 0 el p95 **caía** al subir la tasa (7,54 → 1,20 ms): con 13 µs de tr
 
 **Del entorno.** Una sola máquina, macOS con Docker en VM y **sin `cpuset`**. Sin la red real del banco TEC-2. Una sola repetición por punto, sin intervalos de confianza.
 
-La medición de CPU (§5.6) acota cuánto puede importar: con los dos shards y el router usando ~0,5 núcleos de los 14 disponibles, **no hay escasez agregada de CPU**, así que la contención entre procesos no puede ser un factor grande. Y el experimento de confinamiento muestra que el resultado **no depende de correr sin límites**: con una cuota de un núcleo por partición el p95 no cambia.
+La medición de CPU (§5.6) acota cuánto puede importar. Con los dos shards y el router usando ~0,5 núcleos de los 14 disponibles **no hay escasez agregada de CPU**, así que la contención entre procesos no puede ser un factor grande. Y el experimento de confinamiento muestra que el resultado **no depende de correr sin límites**: con una cuota de un núcleo por partición el p95 no cambia.
 
-Queda un mecanismo residual no medido: el host es Apple Silicon con 10 núcleos de rendimiento y 4 de eficiencia, y `cpuset` dentro de la VM de Docker fija el contenedor a vCPU de la VM, no a núcleos físicos del host. Nada impide que el hilo escritor termine en un núcleo de eficiencia. Eso afectaría al tiempo de servicio, no a la capacidad agregada, y **solo se resuelve en un host Linux con núcleos físicos dedicados** — es decir, en el banco TEC-2.
+Queda un mecanismo residual no medido. El host es Apple Silicon con 10 núcleos de rendimiento y 4 de eficiencia, y `cpuset` dentro de la VM de Docker fija el contenedor a vCPU de la VM, no a núcleos físicos del host. Nada impide que el hilo escritor termine en un núcleo de eficiencia. Eso afectaría al tiempo de servicio, no a la capacidad agregada, y **solo se resuelve en un host Linux con núcleos físicos dedicados** — es decir, en el banco TEC-2.
 
 **Del alcance.** Tres cosas declaradas en el diseño y no implementadas, que dejan afirmaciones sin evidencia:
 
@@ -430,7 +430,7 @@ Queda un mecanismo residual no medido: el host es Apple Silicon con 10 núcleos 
 **De la interpretación.** Dos advertencias sobre el veredicto:
 
 - **S = 8 ms es una hipótesis, no una medición.** Es el escenario C estimado, no el costo de una lógica de negocio real que el PoC no implementa. Lo que la corrida demuestra es que *si* el costo por orden fuera de 8 ms, el ASR se cumple. El número a verificar cuando la lógica exista sigue siendo el presupuesto de 12,4 ms.
-- **El p99.9 excede el SLA en el pico, y la cifra medida es un piso**: 231 ms en F2+F3 y 352 ms en F4, contra 200 ms. El contrato es sobre p95 y se cumple, pero una de cada mil órdenes lo excede. Viene de la clase pesada del modelo —138 ms de servicio ella sola— sumada a la cola. Dos advertencias: si el contrato se endureciera a p99, S = 8 ms no alcanzaría; y como la mezcla está **acotada por construcción** en 30× la media, el A/B de forma (§4.4) muestra que con una distribución sin cota el mismo escenario da **+23 %**. La magnitud de esta violación depende de una decisión de modelado que no está medida contra la lógica real.
+- **El p99.9 excede el SLA en el pico, y la cifra medida es un piso**: 231 ms en F2+F3 y 352 ms en F4, contra 200 ms. El contrato es sobre p95 y se cumple, pero una de cada mil órdenes lo excede. Viene de la clase pesada del modelo —138 ms de servicio ella sola— sumada a la cola. Dos advertencias. Si el contrato se endureciera a p99, S = 8 ms no alcanzaría. Y la mezcla está **acotada por construcción** en 30× la media: el A/B de forma (§4.4) muestra que sin cota el mismo escenario da **+23 %**. La magnitud de esta violación depende de una decisión de modelado que no está medida contra la lógica real.
 
 ---
 

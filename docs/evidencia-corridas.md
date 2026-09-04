@@ -212,7 +212,7 @@ Misma secuencia con la lógica de negocio apagada: el motor solo ejecuta el `mat
 
 615.714 órdenes, 0 rechazos, **0 violaciones de routing** sobre las 179.669 de F1 y F2 — el aislamiento del sharding verificado en vivo.
 
-Lo que esta corrida establece y sigue en pie:
+Lo que esta corrida establece:
 
 - **El patrón cuesta microsegundos, y tres cuartas partes son despertar un hilo.** A 17/s, 207 de los 272 µs (**76 %**) son el costo de despertar al hilo escritor dormido bajo `BlockingWaitStrategy`; el trabajo real son 13 µs. Es la mayor palanca de latencia que queda en el motor *cuando la lógica de negocio es barata*; con S = 8 ms es ruido.
 - **F3 drena por debajo del baseline.** La espera interna vuelve a 137 µs contra los 203 µs de F1: la escalabilidad transitoria que exige ASR-03 se absorbe sin dejar deuda.
@@ -317,9 +317,9 @@ Es una atribución **por eliminación, no positiva**. Demostrar la causa exige t
 | Motor / total (F1) | 3,6 % | **88 %** |
 | Motor / total (F4) | 3,7 % | **99 %** |
 
-Con la lógica apagada, el 96 % del tiempo era transporte —gRPC, el router, la red virtualizada de Docker en macOS— y la conclusión natural era «esto mide el montaje, no el motor». Es cierto **solo con S = 0**. Ya con S = 5 ms el motor explica el 88 %, y desde S = 10 ms el transporte es ruido.
+Con la lógica apagada, el 96 % del tiempo es transporte: gRPC, el router y la red virtualizada de Docker en macOS. Con S = 5 ms el motor ya explica el 88 %, y desde S = 10 ms el transporte es ruido.
 
-La lectura correcta se invierte: *con la lógica apagada se mide la VM de Docker; con lógica realista se mide el patrón.* De ahí que `BIZ_MICROS` sea hoy un parámetro obligatorio y registrado de cada corrida.
+**El reparto motor/transporte no es una propiedad del montaje: depende de S.** Con la lógica apagada se mide la VM de Docker; con lógica realista se mide el patrón. De ahí que `BIZ_MICROS` sea un parámetro obligatorio y registrado de cada corrida.
 
 ### 5.2 El sistema no se degrada: cae por un acantilado
 

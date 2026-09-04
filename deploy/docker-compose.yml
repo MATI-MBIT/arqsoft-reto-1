@@ -26,7 +26,12 @@ services:
       # Forma de la distribucion del costo: mezcla (default) o lognormal.
       # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
       BIZ_DIST: "${BIZ_DIST:-mezcla}"
-    # cpuset: "2"        # ← descomentar en Linux: un núcleo dedicado por shard
+    # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
+    # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
+    # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
+    cpus: ${SHARD_CPUS:-0}
+    cpuset: "${SHARD_CPUSET:-}"
+    mem_limit: ${SHARD_MEM:-0}
 
   matching-shard-1:
     build:
@@ -44,7 +49,12 @@ services:
       # Forma de la distribucion del costo: mezcla (default) o lognormal.
       # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
       BIZ_DIST: "${BIZ_DIST:-mezcla}"
-    # cpuset: "3"
+    # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
+    # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
+    # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
+    cpus: ${SHARD_CPUS:-0}
+    cpuset: "${SHARD_CPUSET:-}"
+    mem_limit: ${SHARD_MEM:-0}
 
   matching-shard-2:
     profiles: ["n4"]
@@ -63,7 +73,12 @@ services:
       # Forma de la distribucion del costo: mezcla (default) o lognormal.
       # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
       BIZ_DIST: "${BIZ_DIST:-mezcla}"
-    # cpuset: "4"
+    # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
+    # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
+    # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
+    cpus: ${SHARD_CPUS:-0}
+    cpuset: "${SHARD_CPUSET:-}"
+    mem_limit: ${SHARD_MEM:-0}
 
   matching-shard-3:
     profiles: ["n4"]
@@ -82,7 +97,12 @@ services:
       # Forma de la distribucion del costo: mezcla (default) o lognormal.
       # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
       BIZ_DIST: "${BIZ_DIST:-mezcla}"
-    # cpuset: "5"
+    # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
+    # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
+    # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
+    cpus: ${SHARD_CPUS:-0}
+    cpuset: "${SHARD_CPUSET:-}"
+    mem_limit: ${SHARD_MEM:-0}
 
   ingest-router:
     build:

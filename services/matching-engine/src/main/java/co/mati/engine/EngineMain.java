@@ -84,6 +84,14 @@ public final class EngineMain {
         // Provenance de la corrida: qué se midió exactamente. Sin esta línea, un
         // resultado de capacidad es ambiguo — ver BusinessLogicModel.
         log.info("shard={} modelo de logica de negocio: {}", shardId, businessLogic.describe());
+        // Cuantas CPU CREE tener la JVM. Con un limite de cgroup (cpus/cpuset) este
+        // numero baja, y con el bajan los hilos de ZGC, los de compilacion JIT y el
+        // executor de gRPC. Sin registrarlo, una corrida restringida y una libre son
+        // indistinguibles en la evidencia.
+        log.info("shard={} runtime: availableProcessors={} maxHeap={}MB",
+                shardId,
+                Runtime.getRuntime().availableProcessors(),
+                Runtime.getRuntime().maxMemory() / (1024 * 1024));
 
         // Reporte periódico de percentiles: la contraparte interna de la medición del generador.
         ScheduledExecutorService reporter = Executors.newSingleThreadScheduledExecutor(r -> {

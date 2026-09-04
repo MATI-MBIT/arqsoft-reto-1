@@ -51,6 +51,7 @@ La variable `BIZ_DIST` permite además cambiar la **forma** de esa distribución
 | **1** | **Oficial** (`make e2e BIZ_MICROS=8000`) | 8 ms | ¿Se cumple el ASR con un costo por orden realista? |
 | **2** | **Barrido** (`make sweep-service`, `sweep-hot`) | 0 → 25 ms | ¿Hasta cuánto puede costar una orden sin romper el ASR? |
 | **3** | **Patrón aislado** (`make e2e`, S = 0) | 0 | ¿Cuánto cuesta el patrón LMAX por sí solo? |
+| **4** | **Confinamiento** (`make compare-cpus`) | 8 ms | ¿Se sostiene el ASR con los recursos que tendría en producción? |
 
 **Por qué S = 8 ms en la corrida oficial.** El costo depende de dónde viva la lógica de negocio:
 
@@ -318,6 +319,37 @@ H2 afirma que el patrón sostiene el ASR «sin exigir más de un núcleo por par
 
 **La cláusula se cumple, y por una razón estructural.** A 42 órd/s por partición con 8 ms por orden, el trabajo es 336 ms de CPU por segundo = 33,6 % de un núcleo. Extrapolando a las 125 órd/s del techo `1/S`, daría exactamente **100 %**. Es decir: **el techo de throughput y el límite de un núcleo por partición son el mismo hecho**. En un diseño de único escritor, saturar el hilo *es* saturar un núcleo. H2 no se cumple por suerte: se cumple por construcción.
 
+#### De observación a restricción
+
+Lo anterior dice que el sistema *resultó* usar menos de un núcleo corriendo suelto sobre 14 vCPU — cosa que ningún despliegue real hace. Para convertirlo en una condición que el sistema debe cumplir, se repitió F2 confinando cada partición con una cuota de cgroup:
+
+| Cuota | `availableProcessors` | **k6 p95** | k6 p99 | espera p95 | servicio p50 | |
+|---|---|---|---|---|---|---|
+| sin límite | 14 | **79,22 ms** | 143,55 ms | 53,7 ms | 4.607 µs | referencia |
+| 2,0 núcleos | 2 | **85,73 ms** | 142,88 ms | 58,7 ms | 4.607 µs | dentro del ruido |
+| **1,0 núcleo** | **1** | **81,05 ms** | 143,26 ms | 61,6 ms | 4.607 µs | **dentro del ruido** |
+| 0,5 núcleos | 1 | **136,67 ms** | 199,93 ms | 108,0 ms | 4.607 µs | ❌ **+72 %** |
+
+Verificado en el cgroup con `docker inspect` en cada punto (`NanoCpus` = cuota × 10⁹), no solo declarado en el YAML: `deploy.resources` **se ignora en silencio** fuera de Swarm, así que usar esa clave habría dado una restricción inexistente. El motor registra además su `availableProcessors`, que es lo que decide cuántos hilos levantan ZGC, el compilador JIT y el executor de gRPC.
+
+> **Confinar cada partición a un solo núcleo no cuesta nada medible.** La cláusula de H2 pasa de observación a **restricción cumplida**: el sistema sostiene el ASR con `cpus=1.0` por partición.
+
+Los tres primeros puntos están dentro del ±3 % de ruido de §5.7 —el de 1,0 salió *mejor* que el de 2,0, lo que no tiene mecanismo posible y confirma que ahí solo hay dispersión—. El de 0,5 es el control negativo: **debía** morder, porque el pico de uso observado es 0,58 núcleos, y mordió sin ambigüedad.
+
+**El mecanismo del estrangulamiento, en los percentiles internos:**
+
+| | Sin límite | 0,5 núcleos | |
+|---|---|---|---|
+| `servicio p50` | 4.607 µs | 4.607 µs | sin cambio |
+| `servicio p95` | 27.599 µs | 27.615 µs | sin cambio |
+| `servicio p99.9` | 137.983 µs | **183.423 µs** | +33 % |
+| `servicio max` | 138.239 µs | **200.063 µs** | +45 % |
+| `espera p95` | 53.695 µs | **107.967 µs** | ×2,0 |
+
+El máximo que el modelo puede generar es 137.931 µs; sin límite el `servicio max` queda en 138.239, apenas 300 µs por encima. Estrangulado sube a 200.063: **62 ms de throttling puro sobre una sola orden.** El CFS suspende el proceso por lo que resta de su período de 100 ms, así que las órdenes baratas (4,6 ms) caben dentro de un período y casi nunca lo pagan —de ahí que p50 y p95 no se muevan— mientras las de 138 ms cruzan varios y sí. Y como el hilo recibe menos CPU en total, la cola drena más lento y la espera se duplica.
+
+Consecuencia para el dimensionamiento: **una cuota de un núcleo por partición es suficiente y media es insuficiente**, con el punto de quiebre entre ambas y más cerca de 0,5 que de 1,0.
+
 ### 5.7 El instrumento es válido
 
 Tres verificaciones independientes:
@@ -334,7 +366,11 @@ En el barrido, la mediana teórica `0,575·S` acertó en los cinco puntos (2.875
 
 **El tiempo de servicio no se contamina con la carga.** `servicio p95` se mantiene entre 27,60 y 27,63 ms en las seis fases de la corrida oficial, con la tasa variando de 17 a 1.000 órd/s y la distribución pasando de 36 símbolos a uno solo — incluso en saturación completa con la cola en 7 segundos.
 
-**El perfil corto replica al oficial.** F4 dio **148,09 ms**; el punto S = 8 ms del barrido corto había dado **148,19 ms**, con 14.600 órdenes contra 167.429 y 4,5 min contra 40. Y la fase F2 del A/B de forma, también en perfil corto, dio **74,7 ms** contra los **74,32 ms** de la corrida oficial de 40 min. Tres réplicas dentro del 0,5 %: el perfil corto no sesga esta medición.
+**El perfil corto replica al oficial, dentro de ±3 %.** F4 dio 148,09 ms contra los 148,19 ms del barrido corto al mismo S, y la fase F2 del A/B de forma dio 74,7 ms contra los 74,32 ms de la corrida oficial de 40 min.
+
+Esas dos coincidencias, de un 0,5 %, invitaban a concluir que el instrumento es más preciso de lo que es. **No lo es.** Cuatro corridas de la *misma* configuración —F2 corto, S = 8 ms, sin límites— dieron 74,70 / 77,98 / 79,22 ms: una dispersión del **6 %**. Las dos coincidencias del 0,5 % fueron suerte de emparejamiento, no precisión del método.
+
+La lectura correcta: el perfil corto no sesga la medición, pero **el piso de ruido con una repetición por punto es de ~±3 %**, así que ninguna diferencia menor a ~6 % entre dos corridas es interpretable. Eso descarta leer como señal las diferencias pequeñas de §5.6, y es el argumento más fuerte a favor de repetir cada punto en el banco TEC-2.
 
 **El veredicto no depende de la forma de la distribución de servicio.** Con media y Cs² fijos, cambiar la mezcla discreta por una lognormal continua deja el p95 en 63,3 ms contra 74,7 — los dos muy por debajo de los 200 ms del criterio (§4.4). Lo que sí depende de la forma es la cola: ver la limitación correspondiente en §6.
 
@@ -348,7 +384,9 @@ Con S = 0 el p95 **caía** al subir la tasa (7,54 → 1,20 ms): con 13 µs de tr
 
 **Del entorno.** Una sola máquina, macOS con Docker en VM y **sin `cpuset`**. Sin la red real del banco TEC-2. Una sola repetición por punto, sin intervalos de confianza.
 
-La medición de CPU (§5.6) acota cuánto puede importar: con los dos shards y el router usando ~0,5 núcleos de los 14 disponibles, **no hay escasez agregada de CPU**, así que la contención entre procesos no puede ser un factor grande. Queda un mecanismo residual no medido: el host es Apple Silicon con 10 núcleos de rendimiento y 4 de eficiencia, y sin `cpuset` nada impide que el hilo escritor caiga en uno de eficiencia. Eso afectaría al tiempo de servicio, no a la capacidad agregada.
+La medición de CPU (§5.6) acota cuánto puede importar: con los dos shards y el router usando ~0,5 núcleos de los 14 disponibles, **no hay escasez agregada de CPU**, así que la contención entre procesos no puede ser un factor grande. Y el experimento de confinamiento muestra que el resultado **no depende de correr sin límites**: con una cuota de un núcleo por partición el p95 no cambia.
+
+Queda un mecanismo residual no medido: el host es Apple Silicon con 10 núcleos de rendimiento y 4 de eficiencia, y `cpuset` dentro de la VM de Docker fija el contenedor a vCPU de la VM, no a núcleos físicos del host. Nada impide que el hilo escritor termine en un núcleo de eficiencia. Eso afectaría al tiempo de servicio, no a la capacidad agregada, y **solo se resuelve en un host Linux con núcleos físicos dedicados** — es decir, en el banco TEC-2.
 
 **Del alcance.** Tres cosas declaradas en el diseño y no implementadas, que dejan afirmaciones sin evidencia:
 
@@ -461,6 +499,29 @@ B · lognormal (BIZ_DIST=lognormal, misma media y mismo Cs2)
      La mezcla no puede producir eso: topa en 138 ms por construcción.
 ```
 
+### Confinamiento de CPU · S = 8 ms, F2 perfil corto, N=2
+
+```text
+cpus=0 (sin limite)   NanoCpus=0            availableProcessors=14
+  grpc_req_duration: avg=... p(95)=79.22ms p(99)=143.55ms
+  ACUMULADO shard=0 n=7238 total p95=81727us | espera p95=53695us | servicio p50=4607us p95=27599us p99.9=137983us max=138111us
+
+cpus=2.0              NanoCpus=2000000000   availableProcessors=2
+  grpc_req_duration: p(95)=85.73ms p(99)=142.88ms
+  ACUMULADO         total p95=86847us | espera p95=58655us | servicio p50=4607us
+
+cpus=1.0              NanoCpus=1000000000   availableProcessors=1
+  grpc_req_duration: p(95)=81.05ms p(99)=143.26ms
+  ACUMULADO         total p95=82495us | espera p95=61631us | servicio p50=4607us
+  ← la clausula de H2 cumplida como RESTRICCION, no como observacion
+
+cpus=0.5              NanoCpus=500000000    availableProcessors=1
+  grpc_req_duration: p(95)=136.67ms p(99)=199.93ms
+  ACUMULADO shard=0 n=7330 total p95=135679us | espera p95=107967us | servicio p50=4607us p95=27615us p99.9=183423us max=200063us
+  ← servicio max 200.063us contra el tope de 137.931us del modelo: 62 ms de throttling del CFS
+  ← control negativo: debia morder (el pico de uso es 0,58 nucleos) y mordio
+```
+
 ### Barrido de S
 
 ```text
@@ -480,9 +541,9 @@ Partición caliente (F4, todo el pico en un símbolo) — make sweep-hot
 
 ---
 
-## 8. Nota metodológica: tres defectos corregidos
+## 8. Nota metodológica: cuatro defectos corregidos
 
-Encontrados al montar el barrido; los tres afectaban a la evidencia previa y quedan documentados porque explican por qué las cifras publicadas antes del 3 de septiembre no coinciden con estas.
+Encontrados al montar los barridos; los cuatro afectaban a la evidencia previa y quedan documentados porque explican por qué las cifras publicadas antes del 3 de septiembre no coinciden con estas.
 
 1. **`run-e2e.sh` nunca definía `BIZ_MICROS`**, así que Compose usaba su default `0`: la corrida que se publicó como oficial se ejecutó con la lógica de negocio apagada. Ahora es un parámetro explícito, va en el nombre del directorio de resultados y en `manifiesto.txt`, y la corrida avisa si se ejecuta en 0.
 2. **La captura de logs descartaba la línea de provenance** con la que el motor declara su punto de operación al arrancar, de modo que la evidencia no podía demostrar con qué S se midió. Se corrigió además el orden en que se toma la marca temporal: se tomaba después de levantar la topología, cuando la línea ya se había emitido.

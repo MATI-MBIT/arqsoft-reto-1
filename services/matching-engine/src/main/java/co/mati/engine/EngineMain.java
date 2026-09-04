@@ -1,6 +1,7 @@
 package co.mati.engine;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
+import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 import io.grpc.Server;
@@ -10,6 +11,7 @@ import org.HdrHistogram.Recorder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Path;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -48,9 +50,11 @@ public final class EngineMain {
         Recorder latencyRecorder = new Recorder(3);
         Recorder waitRecorder = new Recorder(3);
         Recorder serviceRecorder = new Recorder(3);
+        Recorder journalRecorder = new Recorder(3);
         Histogram totalCumulative = new Histogram(3);
         Histogram waitCumulative = new Histogram(3);
         Histogram serviceCumulative = new Histogram(3);
+        Histogram journalCumulative = new Histogram(3);
         Object drainLock = new Object();
 
         BusinessLogicModel businessLogic = BusinessLogicModel.fromEnv(shardId);
@@ -71,8 +75,29 @@ public final class EngineMain {
                 ProducerType.MULTI,          // varios hilos gRPC publican; consume UNO solo
                 new BlockingWaitStrategy());
 
-        disruptor.handleEventsWith(
-                new MatchingHandler(shardId, latencyRecorder, waitRecorder, serviceRecorder, businessLogic));
+        // Cableado del journal. Las tres disposiciones prueban la clausula de H1
+        // sobre mantener el journaling FUERA del camino critico:
+        //
+        //   OFF      matcher                       -- configuracion original
+        //   PARALELO (journal | matcher) -> limpia -- el journal no suma latencia,
+        //                                             pero el acuse no implica durabilidad
+        //   SERIE    journal -> matcher  -> limpia -- durabilidad antes del acuse,
+        //                                             con el journal en el camino critico
+        //
+        // La limpieza del slot va SIEMPRE al final de la cadena: con consumidores
+        // en paralelo ninguno puede mutar el evento (ver MatchingHandler).
+        JournalHandler.Mode journalMode = JournalHandler.Mode.fromEnv();
+        MatchingHandler matcher =
+                new MatchingHandler(shardId, latencyRecorder, waitRecorder, serviceRecorder, businessLogic);
+        EventHandler<OrderSlot> cleaner = (slot, seq, endOfBatch) -> slot.clear();
+        JournalHandler journal = (journalMode == JournalHandler.Mode.OFF) ? null
+                : new JournalHandler(shardId, Path.of(env("JOURNAL_DIR", "/var/lib/engine/journal")), journalRecorder);
+
+        switch (journalMode) {
+            case PARALELO -> disruptor.handleEventsWith(journal, matcher).then(cleaner);
+            case SERIE    -> disruptor.handleEventsWith(journal).then(matcher).then(cleaner);
+            case OFF      -> disruptor.handleEventsWith(matcher).then(cleaner);
+        }
         disruptor.start();
 
         Server server = ServerBuilder.forPort(port)
@@ -84,6 +109,7 @@ public final class EngineMain {
         // Provenance de la corrida: qué se midió exactamente. Sin esta línea, un
         // resultado de capacidad es ambiguo — ver BusinessLogicModel.
         log.info("shard={} modelo de logica de negocio: {}", shardId, businessLogic.describe());
+        log.info("shard={} journal: modo={}", shardId, journalMode);
         // Cuantas CPU CREE tener la JVM. Con un limite de cgroup (cpus/cpuset) este
         // numero baja, y con el bajan los hilos de ZGC, los de compilacion JIT y el
         // executor de gRPC. Sin registrarlo, una corrida restringida y una libre son
@@ -110,6 +136,7 @@ public final class EngineMain {
                 totalCumulative.add(total);
                 waitCumulative.add(wait);
                 serviceCumulative.add(service);
+                journalCumulative.add(journalRecorder.getIntervalHistogram());
             }
             if (total.getTotalCount() == 0) {
                 return;
@@ -145,6 +172,20 @@ public final class EngineMain {
                 totalCumulative.add(latencyRecorder.getIntervalHistogram());
                 waitCumulative.add(waitRecorder.getIntervalHistogram());
                 serviceCumulative.add(serviceRecorder.getIntervalHistogram());
+            }
+            if (journal != null) {
+                synchronized (drainLock) {
+                    journalCumulative.add(journalRecorder.getIntervalHistogram());
+                }
+                journal.close();
+                // Linea propia: no se mezcla con ACUMULADO para no romper los
+                // extractores que ya leen ese formato.
+                log.info("JOURNAL shard={} {} | p50={}us p95={}us p99.9={}us max={}us",
+                        shardId, journal.describe(journalMode, journalCumulative.getTotalCount()),
+                        journalCumulative.getValueAtPercentile(50.0),
+                        journalCumulative.getValueAtPercentile(95.0),
+                        journalCumulative.getValueAtPercentile(99.9),
+                        journalCumulative.getMaxValue());
             }
             if (totalCumulative.getTotalCount() == 0) {
                 return;

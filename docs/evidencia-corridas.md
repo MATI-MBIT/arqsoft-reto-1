@@ -52,6 +52,7 @@ La variable `BIZ_DIST` permite además cambiar la **forma** de esa distribución
 | **2** | **Barrido** (`make sweep-service`, `sweep-hot`) | 0 → 25 ms | ¿Hasta cuánto puede costar una orden sin romper el ASR? |
 | **3** | **Patrón aislado** (`make e2e`, S = 0) | 0 | ¿Cuánto cuesta el patrón LMAX por sí solo? |
 | **4** | **Confinamiento** (`make compare-cpus`) | 8 ms | ¿Se sostiene el ASR con los recursos que tendría en producción? |
+| **5** | **Journaling** (`make compare-journal`) | 8 ms | ¿Se puede registrar cada orden sin pagarlo en latencia? |
 
 **Por qué S = 8 ms en la corrida oficial.** El costo depende de dónde viva la lógica de negocio:
 
@@ -245,6 +246,38 @@ Tres lecturas:
 
 **Y la mezcla subestima la cola.** Está **acotada por construcción** en 30× la media (138 ms de servicio máximo); esa cota es artificial y la lógica real no la tiene. La lognormal produjo una orden de **369 ms de servicio**, un solo evento bloqueando al único escritor más de un tercio de segundo. La violación del p99.9 documentada en §6 es, por tanto, un **piso**: con colas sin cota empeora al menos un 23 %.
 
+### 4.5 ¿Se puede registrar cada orden sin pagarlo en latencia? — journaling
+
+H1 afirma que el patrón sostiene el p95 «con el journaling fuera del camino crítico». La cláusula nunca se probó porque el PoC no registraba nada. El Disruptor admite las dos disposiciones que la afirmación contrasta, y la diferencia entre ellas **es** la afirmación.
+
+En **paralelo** —`handleEventsWith(journal, matcher)`— los dos consumidores leen la misma secuencia por separado. El registro no suma latencia al cliente, pero el matcher responde sin esperar al disco: **el acuse no garantiza durabilidad**. En **serie** —`handleEventsWith(journal).then(matcher)`— se invierte el trato: el acuse implica durabilidad y el journal entra al camino crítico.
+
+Ninguna es la correcta. Son dos contratos distintos con el cliente, y esto mide el precio de cada uno.
+
+| Modo | k6 p95 | **Total p50** | **Espera p50** | Journal p50 | Journal p95 | Órd/fsync |
+|---|---|---|---|---|---|---|
+| `off` | 78,00 ms | **4.663 µs** | **44 µs** | — | — | — |
+| `paralelo` | 82,17 ms | **4.707 µs** | **85 µs** | 516 µs | 2.067 µs | 1,0 |
+| `serie` | 73,03 ms | **5.899 µs** | **909 µs** | 529 µs | 3.643 µs | 1,0 |
+
+**El p95 no responde la pregunta.** `serie` salió más rápido que `off`, y eso es mecánicamente imposible: añadir escritura sincrónica al camino crítico no acelera nada.
+
+Seis corridas de esta configuración dan 73,0 / 74,7 / 78,0 / 78,0 / 79,2 / 82,2 ms: un rango del 12,5 %. El journal cuesta 516 µs, apenas el 11 % del tiempo de servicio, y se ahoga en esa dispersión.
+
+**La mediana sí.** Es mucho menos ruidosa y separa los tres modos sin ambigüedad. La espera mediana pasa de 44 µs a 85 con el journal en paralelo, y a **909 µs** con el journal en serie. Los 909 µs cuadran con el mecanismo: en serie cada orden espera a que se registre la anterior.
+
+> **La cláusula de H1 queda probada.** En paralelo el journaling cuesta el **0,9 %** de la latencia mediana del motor; en serie cuesta el **26,5 %**. Un factor de **29×** entre las dos disposiciones, que es justo lo que el patrón predice.
+
+**El fsync no se amortiza a carga contractual.** El `force()` se hace una vez por lote y no por evento, que es el diseño de LMAX.
+
+Pero `ordenes_por_fsync = 1,0` en ambos modos. El journaler es más rápido que el matcher, así que a 42 órd/s nunca se rezaga y cada despertar le trae un solo evento. **El lote solo crece cuando el consumidor va detrás**, es decir bajo saturación.
+
+Está pagando entonces un fsync entero por orden. Eso refina la lectura de H1: la afirmación defendible no es «el journaling es barato» —cuesta 516 µs, el 11 % del servicio— sino «**el journaling no está en el camino crítico**». Son cosas distintas y solo la segunda se sostiene.
+
+**Con un consumidor en paralelo, ningún consumidor puede mutar el evento.** `MatchingHandler` limpiaba el slot al terminar; con el journaler leyendo la misma entrada, eso anula `symbol` y `orderId` bajo sus pies.
+
+El slot pertenece al ring hasta que todos pasaron, así que la limpieza se movió a un manejador encadenado al final. La restricción no existía mientras hubo un solo consumidor: **apareció al construir el experimento**.
+
 ---
 
 ## 5. Hallazgos
@@ -390,7 +423,7 @@ Queda un mecanismo residual no medido: el host es Apple Silicon con 10 núcleos 
 
 | Sin implementar | Qué queda sin probar |
 |---|---|
-| **Journaling** | la cláusula de H1 sobre mantenerlo fuera del camino crítico |
+| ~~Journaling~~ | ✅ **implementado y medido** (§4.5): en paralelo cuesta el 0,9 % de la latencia mediana; en serie, el 26,5 % |
 | ~~CPU por proceso~~ | ✅ **medido** (§5.6): 23,6 % de un núcleo en media, 58,3 % máximo. La cláusula de H2 queda respaldada |
 | **JFR** | atribuir los atascos aislados a GC, JIT o contención del host |
 
@@ -495,6 +528,27 @@ B · lognormal (BIZ_DIST=lognormal, misma media y mismo Cs2)
             | espera p50=33us p95=42815us | servicio p50=3879us p95=29407us p99.9=169343us max=369407us
   ← `servicio max=369407us`: una sola orden bloqueó al único escritor 369 ms.
      La mezcla no puede producir eso: topa en 138 ms por construcción.
+```
+
+### Journaling · S = 8 ms, F2 perfil corto, N=2
+
+```text
+off       grpc_req_duration: p(95)=78ms p(99)=141.45ms
+          ACUMULADO shard=0 n=7317 total p50=4663us p95=80767us | espera p50=44us p95=52799us | servicio p50=4607us
+
+paralelo  handleEventsWith(journal, matcher).then(limpiador)
+          grpc_req_duration: p(95)=82.17ms p(99)=142.96ms
+          ACUMULADO shard=1 n=7264 total p50=4707us p95=62335us | espera p50=85us p95=37887us | servicio p50=4607us
+          JOURNAL shard=0 modo=PARALELO registros=7375 bytes=349721 ordenes_por_fsync=1.0
+                  | p50=516us p95=2067us p99.9=8839us max=26079us
+
+serie     handleEventsWith(journal).then(matcher).then(limpiador)
+          grpc_req_duration: p(95)=73.03ms p(99)=142.64ms
+          ACUMULADO shard=1 n=7316 total p50=5899us p95=64159us | espera p50=909us p95=39935us | servicio p50=4607us
+          JOURNAL shard=1 modo=SERIE registros=7316 bytes=348669 ordenes_por_fsync=1.0
+                  | p50=529us p95=3643us p99.9=8967us max=24431us
+  ← la espera mediana: 44 -> 85 -> 909 us. El p95 no resuelve la pregunta; la mediana si
+  ← ordenes_por_fsync=1.0 en los dos modos: a 42 ord/s el journaler nunca se rezaga
 ```
 
 ### Confinamiento de CPU · S = 8 ms, F2 perfil corto, N=2

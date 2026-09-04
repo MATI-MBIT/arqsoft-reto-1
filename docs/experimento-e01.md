@@ -179,7 +179,7 @@ Limitaciones declaradas: el techo de una partición es `1/S`, así que toda cifr
 
 **Required resources:** Java 21 + Disruptor 4.0.0 + gRPC/Protobuf; Docker Compose; k6 ≥ 0.49 con gRPC nativo; HdrHistogram; una máquina de 8+ vCPU/16 GB; `Makefile` + `run-e2e.sh` como orquestación. *(Previstos y no usados: Prometheus/Grafana, JFR, cpuset.)*
 
-**Architecture elements involved:** ingesta gRPC con router de sharding y cola acotada; N shards LMAX; generador externo. Excluidos por no incidir en ASR-02/03: journaling, fan-out de notificaciones, CQRS, persistencia, broker, autoescalado. Vistas afectadas: funcional y concurrencia.
+**Architecture elements involved:** ingesta gRPC con router de sharding y cola acotada; N shards LMAX; journaling como consumidor paralelo del ring; generador externo. Excluidos por no incidir en ASR-02/03: fan-out de notificaciones, CQRS, persistencia, broker, autoescalado. Vistas afectadas: funcional y concurrencia.
 
 **Estimated effort:** 2 personas × 1 semana (≈ 40 horas-persona): 2 días de construcción, 1 de generador e instrumentación, 1 de corridas, 1 de análisis y decisión.
 
@@ -241,6 +241,8 @@ Lo que esta corrida establece: el patrón cuesta microsegundos y el 76 % es desp
 **Conclusion:**
 
 **H1 y H2 se cumplen con S = 8 ms** — márgenes 6,3× y 2,7×, arribo estocástico, sharding balanceado y verificado. La cláusula «sin exigir más de un núcleo por partición» quedó respaldada por medición (23,6 % de un núcleo en media; con cuota de `cpus=1.0` el p95 no cambia) y por estructura: a las 125 órd/s del techo `1/S`, el trabajo ocupa exactamente el 100 % de un núcleo — el techo de throughput y el límite de un núcleo son el mismo hecho.
+
+**El journaling sale del camino crítico, y ahora hay número.** Como consumidor paralelo del ring cuesta el 0,9 % de la latencia mediana del motor; encadenado antes del matcher, el 26,5 %. Un factor de 29× entre las dos disposiciones. Dos matices. El journal no es barato —516 µs por orden, el 11 % del servicio—: lo probado es que no está en el camino crítico, que es otra afirmación. Y el `force()` por lote no se amortiza a 42 órd/s, porque el journaler nunca se rezaga: paga un fsync entero por orden.
 
 **H2b se confirmó.** Misma tasa y mismo S; solo cambia la distribución de símbolos, y el p95 se duplica (74,32 → 148,09 ms) con el servicio invariante y la espera ×2,7. Cumple el ASR con 1,35× de margen.
 

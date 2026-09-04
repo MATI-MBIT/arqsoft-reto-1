@@ -120,6 +120,7 @@ docs-serve: ## Previsualiza la documentación Jekyll en http://localhost:4000/ar
 
 PEAK ?= 500
 CUOTAS ?= 0 2.0 1.0 0.5
+MODOS  ?= off paralelo serie
 
 .PHONY: f4-peak
 f4-peak: ## F4 exploratoria corta (~5 min) a tasa PEAK/s en un solo símbolo (make f4-peak PEAK=500)
@@ -157,6 +158,10 @@ sweep-n4: ## Mismo barrido con N=4: evidencia de si el presupuesto escala con el
 .PHONY: compare-cpus
 compare-cpus: ## Efecto del confinamiento de CPU: F2 con 0/2/1/0,5 nucleos por particion (make compare-cpus CUOTAS="0 1.0")
 	BIZ_MICROS=$(BIZ_MICROS) ./load/compare-cpus.sh $(CUOTAS)
+
+.PHONY: compare-journal
+compare-journal: ## Prueba la clausula de H1: journaling off vs paralelo vs serie (make compare-journal MODOS="off serie")
+	BIZ_MICROS=$(BIZ_MICROS) ./load/compare-journal.sh $(MODOS)
 
 .PHONY: verify-limits
 verify-limits: ## Comprueba EN EL CGROUP que los limites declarados se aplicaron de verdad

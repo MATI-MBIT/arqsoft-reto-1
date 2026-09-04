@@ -81,6 +81,10 @@ public final class MatchingHandler implements EventHandler<OrderSlot> {
                 .build();
 
         slot.completion.complete(response);
-        slot.clear(); // no retener referencias: el slot se recicla
+        // NO se limpia el slot aqui. Con el journal en PARALELO este manejador no
+        // es el ultimo en ver el evento, y limpiarlo seria una condicion de
+        // carrera: el journaler leeria campos ya anulados. El slot pertenece al
+        // ring hasta que TODOS los consumidores pasaron, asi que la limpieza la
+        // hace un manejador encadenado al final (ver EngineMain).
     }
 }

@@ -26,6 +26,12 @@ services:
       # Forma de la distribucion del costo: mezcla (default) o lognormal.
       # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
       BIZ_DIST: "${BIZ_DIST:-mezcla}"
+      # Journaling: off | paralelo | serie. Prueba la clausula de H1 sobre
+      # mantenerlo fuera del camino critico (ver JournalHandler).
+      JOURNAL: "${JOURNAL:-off}"
+      JOURNAL_DIR: "/var/lib/engine/journal"
+    volumes:
+      - journal-0:/var/lib/engine/journal
     # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
     # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
     # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
@@ -49,6 +55,12 @@ services:
       # Forma de la distribucion del costo: mezcla (default) o lognormal.
       # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
       BIZ_DIST: "${BIZ_DIST:-mezcla}"
+      # Journaling: off | paralelo | serie. Prueba la clausula de H1 sobre
+      # mantenerlo fuera del camino critico (ver JournalHandler).
+      JOURNAL: "${JOURNAL:-off}"
+      JOURNAL_DIR: "/var/lib/engine/journal"
+    volumes:
+      - journal-1:/var/lib/engine/journal
     # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
     # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
     # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
@@ -73,6 +85,12 @@ services:
       # Forma de la distribucion del costo: mezcla (default) o lognormal.
       # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
       BIZ_DIST: "${BIZ_DIST:-mezcla}"
+      # Journaling: off | paralelo | serie. Prueba la clausula de H1 sobre
+      # mantenerlo fuera del camino critico (ver JournalHandler).
+      JOURNAL: "${JOURNAL:-off}"
+      JOURNAL_DIR: "/var/lib/engine/journal"
+    volumes:
+      - journal-2:/var/lib/engine/journal
     # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
     # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
     # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
@@ -97,6 +115,12 @@ services:
       # Forma de la distribucion del costo: mezcla (default) o lognormal.
       # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
       BIZ_DIST: "${BIZ_DIST:-mezcla}"
+      # Journaling: off | paralelo | serie. Prueba la clausula de H1 sobre
+      # mantenerlo fuera del camino critico (ver JournalHandler).
+      JOURNAL: "${JOURNAL:-off}"
+      JOURNAL_DIR: "/var/lib/engine/journal"
+    volumes:
+      - journal-3:/var/lib/engine/journal
     # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
     # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
     # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
@@ -120,3 +144,9 @@ services:
       - matching-shard-0
       - matching-shard-1
     # cpuset: "6,7"
+
+volumes:
+  journal-0:
+  journal-1:
+  journal-2:
+  journal-3:

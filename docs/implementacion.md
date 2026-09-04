@@ -37,6 +37,8 @@ Cada **shard es un proceso** (un contenedor): una partición del universo de act
 
 Dos relojes miden lo mismo desde extremos distintos: k6 mide la latencia completa del RPC y el shard mide arribo → materialización. La diferencia entre ambos es el costo del transporte + router, y contrastarlas descarta que el generador contamine el resultado.
 
+Para que esa resta sea válida los dos lados deben publicar **el mismo estadístico**. El shard emite un histograma por ventana de 10 s —útil para ver la evolución dentro de una fase— y además acumula todas las ventanas en un histograma de la corrida completa, que publica al recibir `SIGTERM` con el prefijo `ACUMULADO`. Solo esos son percentiles de la población entera y comparables cifra a cifra con los de k6: **la mediana de los p95 por ventana no es un p95**. El shard descompone además su propio tiempo en `total = espera + servicio`, lo que distingue «hay que abaratar la orden» de «hay que shardear más».
+
 ## 3. Módulos
 
 ### `services/common-proto`
@@ -60,7 +62,7 @@ El router es **sin estado**: no conoce libros ni órdenes. Por eso en el diseño
 | `IngestGrpcService` | Borde gRPC → ring buffer con `tryNext()` (backpressure sin bloqueo). Estampa el `t0` de la medición. |
 | `MatchingHandler` | El *single writer* del patrón LMAX: procesa secuencialmente, sin locks; un `HashMap<String, OrderBook>` por shard; registra latencia y completa el futuro. |
 | `OrderBook` | Libro de un activo: `TreeMap<precio, ArrayDeque<Resting>>` para compras (descendente) y ventas (ascendente); matching por prioridad precio-tiempo con cruce parcial y resto en reposo. **No es thread-safe a propósito** — la exclusión la da el diseño, no los locks. |
-| `BusinessLogicModel` | **Modelo sintético del tiempo de servicio** de la lógica que el PoC no implementa (validación, riesgo, tipos de orden, comisiones, trades). Quema CPU —no duerme— en el hilo del único escritor. Una sola perilla: `BIZ_MICROS`. Apagado por defecto. |
+| `BusinessLogicModel` | **Modelo sintético del tiempo de servicio** de la lógica que el PoC no implementa (validación, riesgo, tipos de orden, comisiones, trades). Quema CPU —no duerme— en el hilo del único escritor. Dos perillas: `BIZ_MICROS` (la media) y `BIZ_DIST` (la forma). Apagado por defecto. |
 | `OrderSlot` | Entrada mutable y preasignada del ring: se rellena al publicar y se limpia al consumir, para que en régimen el camino crítico no genere basura (menos presión de GC). |
 
 ## 4. Mapeo táctica → código
@@ -85,7 +87,8 @@ El router es **sin estado**: no conoce libros ni órdenes. Por eso en el diseño
 | `QUEUE_CAPACITY` | router | 10000 | Solicitudes en vuelo antes de rechazar (cola acotada) |
 | `SHARD_ID` | engine | 0 | Identificador reportado en respuestas y logs |
 | `RING_SIZE` | engine | 16384 | Tamaño del ring buffer (potencia de 2) |
-| `BIZ_MICROS` | engine | 0 | Costo **medio** por orden (µs) del modelo de tiempo de servicio; 0 = apagado |
+| `BIZ_MICROS` | engine | 0 | Costo **medio** por orden (µs) del modelo de tiempo de servicio; 0 = apagado. No es el costo de cada orden: el modelo es una distribución |
+| `BIZ_DIST` | engine | `mezcla` | Forma de esa distribución: `mezcla` (tres clases discretas) o `lognormal` (continua, sin cota). Ambas comparten media y Cs², así que un A/B entre ellas aísla la forma |
 | `JAVA_OPTS` | ambos (Docker) | ZGC, 256–512 MB | Flags de la JVM |
 
 Todo el ciclo de vida está en el **Makefile**: `make build`, `make up` / `make up-n4`, `make smoke`, `make f1|f2|f4`, `make experimento`, `make logs`, `make down`. Cambiar N=2 → N=4 no toca código: el perfil `n4` del compose levanta dos shards más y `make up-n4` le pasa al router la lista de 4.
@@ -112,9 +115,13 @@ techo de un shard = 1 / S          ρ = λ · S
 
 Medir la capacidad con S de microsegundos mide un `TreeMap`, no un motor. Como no hay estimación del costo real, `BusinessLogicModel` lo vuelve un **parámetro barrido** (`make sweep-service`) y el entregable deja de ser un número suelto para ser un **presupuesto de tiempo de servicio**, falsable sin conocer todavía la lógica de negocio.
 
-El modelo respeta dos reglas: **quema CPU en vez de dormir** (un `sleep` devuelve el núcleo, no ensucia la caché ni compite con gRPC, y su granularidad en la JVM es de milisegundos) y **muestrea de una distribución sesgada** en vez de una constante, porque el costo real depende de los datos —una orden que no cruza es barata, una que barre cinco niveles es cara— y esa varianza (Cs²) entra en Kingman igual que la del arribo. La distribución es una mezcla fija de tres clases (90 % ×1, 9 % ×6, 1 % ×30), Cs² = 3,34, acotada por construcción en ~17× la media. Es deliberadamente una sola perilla: sin estimación del costo real, exponer la forma de la distribución sería precisión falsa.
+El modelo respeta dos reglas: **quema CPU en vez de dormir** (un `sleep` devuelve el núcleo, no ensucia la caché ni compite con gRPC, y su granularidad en la JVM es de milisegundos) y **muestrea de una distribución sesgada** en vez de una constante, porque el costo real depende de los datos —una orden que no cruza es barata, una que barre cinco niveles es cara— y esa varianza (Cs²) entra en Kingman igual que la del arribo.
 
-Resultado medido (ver `evidencia-corridas.md`): **el presupuesto es ≈ 8,5 ms por orden** con todo el pico contractual concentrado en una sola partición.
+`BIZ_MICROS` fija la **media**, no el costo de cada orden. Por defecto la distribución es una mezcla de tres clases (90 % ×1, 9 % ×6, 1 % ×30) con Cs² = 3,34 —más variable que una exponencial, que da 1— acotada por construcción en ~17× la media. A S = 8 ms eso significa que una orden cuesta **4,6, 27,6 o 138 ms** según su clase.
+
+`BIZ_DIST=lognormal` ofrece una segunda forma, continua y **sin cota superior**, con la misma media y el mismo Cs² (la σ se deriva del Cs², no se expone: exponerla permitiría elegir la varianza que conviene al resultado). Existe para una sola pregunta: *¿el resultado depende de la forma, o solo de sus dos primeros momentos?* Medido, la respuesta es mixta — el p95 es robusto (74,7 vs 63,3 ms) pero la cola no (p99.9 +23 %), así que la mezcla **subestima el p99.9** por estar acotada.
+
+Resultados medidos (ver `evidencia-corridas.md`): **el presupuesto es ≈ 12,7 ms por orden** con el pico contractual repartido entre 2 particiones, y **≈ 8,5 ms** con todo el pico concentrado en una sola.
 
 ## 7. Despliegue
 

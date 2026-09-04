@@ -40,7 +40,9 @@ La solución es tratar ese costo como **parámetro declarado del experimento** �
 
 Esa afirmación es falsable sin conocer todavía la lógica real: cuando exista, se mide su costo y se compara.
 
-**S es una media, no el costo de cada orden.** La lógica de negocio real no responde siempre igual: la mayoría de las órdenes son límite baratas que no cruzan, unas pocas barren varios niveles y generan varios trades, y una fracción mínima dispara cascadas. El modelo (`BusinessLogicModel`) reproduce esa forma con una **mezcla de tres clases**: 90 % ×1, 9 % ×6, 1 % ×30, con un Cs² de 3,34. A S = 8 ms eso significa que **una orden cuesta 4,6, 27,6 o 138 ms según su clase**. Una constante daría Cs² = 0 y una exponencial 1: el modelo es *más* variable que una exponencial, que es lo que un motor real exhibe.
+**S es una media, no el costo de cada orden.** La lógica de negocio real no responde siempre igual. La mayoría de las órdenes son límite baratas que no cruzan; unas pocas barren varios niveles y generan varios trades; una fracción mínima dispara cascadas. El modelo (`BusinessLogicModel`) reproduce esa forma con una **mezcla de tres clases**: 90 % ×1, 9 % ×6, 1 % ×30, con un Cs² de 3,34. A S = 8 ms eso significa que **una orden cuesta 4,6, 27,6 o 138 ms según su clase**.
+
+Una constante daría Cs² = 0 y una exponencial 1. El modelo es *más* variable que una exponencial, que es lo que un motor real exhibe.
 
 La variable `BIZ_DIST` permite además cambiar la **forma** de esa distribución manteniendo media y Cs² —ver §4.4—, para verificar que el resultado no dependa de esa elección de modelado.
 
@@ -53,6 +55,7 @@ La variable `BIZ_DIST` permite además cambiar la **forma** de esa distribución
 | **3** | **Patrón aislado** (`make e2e`, S = 0) | 0 | ¿Cuánto cuesta el patrón LMAX por sí solo? |
 | **4** | **Confinamiento** (`make compare-cpus`) | 8 ms | ¿Se sostiene el ASR con los recursos que tendría en producción? |
 | **5** | **Journaling** (`make compare-journal`) | 8 ms | ¿Se puede registrar cada orden sin pagarlo en latencia? |
+| **6** | **Perfilado JFR** (`make profile-jfr`) | 8 ms | ¿Qué causa los atascos de cientos de milisegundos? |
 
 **Por qué S = 8 ms en la corrida oficial.** El costo depende de dónde viva la lógica de negocio:
 
@@ -213,7 +216,7 @@ Lo que esta corrida establece y sigue en pie:
 
 - **El patrón cuesta microsegundos, y tres cuartas partes son despertar un hilo.** A 17/s, 207 de los 272 µs (**76 %**) son el costo de despertar al hilo escritor dormido bajo `BlockingWaitStrategy`; el trabajo real son 13 µs. Es la mayor palanca de latencia que queda en el motor *cuando la lógica de negocio es barata*; con S = 8 ms es ruido.
 - **F3 drena por debajo del baseline.** La espera interna vuelve a 137 µs contra los 203 µs de F1: la escalabilidad transitoria que exige ASR-03 se absorbe sin dejar deuda.
-- **Atascos aislados de cientos de milisegundos.** En F2 una orden tardó 300 ms en procesarse y otra esperó 375 ms en el ring buffer, con el p99.9 de la fase en 1,74 ms. Un solo evento así incumple el SLA, y **no se puede atribuir a GC, JIT o contención del host sin JFR**, declarado en el diseño y no implementado.
+- **Atascos aislados de cientos de milisegundos.** En F2 una orden tardó 300 ms en procesarse y otra esperó 375 ms en el ring buffer, con el p99.9 de la fase en 1,74 ms. Un solo evento así incumple el SLA por sí mismo. La causa quedó acotada con JFR (§4.6): **no es la JVM**.
 
 ### 4.4 ¿Depende el resultado de la forma de la distribución? — A/B de forma
 
@@ -277,6 +280,31 @@ Está pagando entonces un fsync entero por orden. Eso refina la lectura de H1: l
 **Con un consumidor en paralelo, ningún consumidor puede mutar el evento.** `MatchingHandler` limpiaba el slot al terminar; con el journaler leyendo la misma entrada, eso anula `symbol` y `orderId` bajo sus pies.
 
 El slot pertenece al ring hasta que todos pasaron, así que la limpieza se movió a un manejador encadenado al final. La restricción no existía mientras hubo un solo consumidor: **apareció al construir el experimento**.
+
+### 4.6 ¿Qué causa los atascos de cientos de milisegundos? — perfilado con JFR
+
+El motor registra atascos aislados que ninguna ventana individual mostraba: una orden que espera 275 ms en el ring cuando el p99.9 de la fase está en 238 ms y el p50 en 4,7 ms. Un solo evento así incumple el SLA. Las tres causas candidatas —pausas de GC, compilación JIT y safepoints— son todas internas a la JVM, así que Java Flight Recorder las puede ver.
+
+La fase se repitió con grabación activa, con S = 8 ms y ZGC intacto: `JFR_OPTS` se **anexa** a `JAVA_OPTS` en vez de reemplazarlo, porque sustituir la cadena apagaría el colector y la corrida perfilada mediría otro sistema.
+
+Esta corrida sí produjo el atasco. El `total max` fue de **275.455 µs** en shard-1 y 242.943 µs en shard-0.
+
+| Evento de la JVM | shard-0 | shard-1 | Eventos |
+|---|---|---|---|
+| `jdk.GCPhasePause` (pausas de ZGC) | **0,110 ms** | **0,128 ms** | 11 · 10 |
+| `jdk.ExecuteVMOperation` | **0,361 ms** | **0,458 ms** | 187 · 189 |
+| `jdk.SafepointBegin` | **0,341 ms** | **0,301 ms** | 153 · 157 |
+| Cualquier otro evento > 50 ms | **ninguno** | **ninguno** | — |
+
+> **La JVM queda descartada.** El atasco es de 275 ms; lo más largo que la máquina virtual detuvo la ejecución fue **0,458 ms**. Un factor de **600**. Y el barrido sobre el catálogo completo de eventos no encuentra ninguno por encima de 50 ms, descontadas las esperas ociosas.
+
+**Qué queda, por eliminación.** Si el atasco no aparece en la grabación, es que la JVM **no estaba corriendo** durante esos 275 ms: alguien la desprogramó desde fuera. Los candidatos son la VM de Docker Desktop y el planificador de macOS. El confinamiento apunta en la misma dirección: con media cuota, el CFS produjo 62 ms de estrangulamiento sobre una sola orden (§5.6) — el mismo mecanismo a menor escala.
+
+Es una atribución **por eliminación, no positiva**. Demostrar la causa exige trazado del lado del anfitrión, que en un host Linux del banco TEC-2 es directo y bajo Docker Desktop en macOS no lo es.
+
+**ZGC hace lo que promete.** Once pausas en 4,5 minutos, la mayor de 0,128 ms. La decisión D-02 —elegir ZGC porque el GC era la causa candidata número uno de cola larga— queda validada, y al mismo tiempo deja de ser la explicación de lo que se buscaba.
+
+**La grabación no distorsionó la medición.** El p95 con JFR activo fue de 71,45 ms contra 74,70 / 78,00 / 79,22 ms de las tres corridas de referencia sin grabación: dentro del ±3 % de ruido del instrumento (§5.7).
 
 ---
 
@@ -379,7 +407,9 @@ Los tres primeros puntos están dentro del ±3 % de ruido de §5.7 —el de 1,0 
 | `servicio max` | 138.239 µs | **200.063 µs** | +45 % |
 | `espera p95` | 53.695 µs | **107.967 µs** | ×2,0 |
 
-El máximo que el modelo puede generar es 137.931 µs; sin límite el `servicio max` queda en 138.239, apenas 300 µs por encima. Estrangulado sube a 200.063: **62 ms de throttling puro sobre una sola orden.** El CFS suspende el proceso por lo que resta de su período de 100 ms. Las órdenes baratas (4,6 ms) caben dentro de un período y casi nunca lo pagan, de ahí que p50 y p95 no se muevan; las de 138 ms cruzan varios y sí. Y como el hilo recibe menos CPU en total, la cola drena más lento y la espera se duplica.
+El máximo que el modelo puede generar es 137.931 µs; sin límite el `servicio max` queda en 138.239, apenas 300 µs por encima. Estrangulado sube a 200.063: **62 ms de throttling puro sobre una sola orden.** El CFS suspende el proceso por lo que resta de su período de 100 ms. Las órdenes baratas (4,6 ms) caben dentro de un período y casi nunca lo pagan, de ahí que p50 y p95 no se muevan; las de 138 ms cruzan varios y sí.
+
+Y como el hilo recibe menos CPU en total, la cola drena más lento: la espera se duplica.
 
 Consecuencia para el dimensionamiento: **una cuota de un núcleo por partición es suficiente y media es insuficiente**, con el punto de quiebre entre ambas y más cerca de 0,5 que de 1,0.
 
@@ -419,18 +449,14 @@ La medición de CPU (§5.6) acota cuánto puede importar. Con los dos shards y e
 
 Queda un mecanismo residual no medido. El host es Apple Silicon con 10 núcleos de rendimiento y 4 de eficiencia, y `cpuset` dentro de la VM de Docker fija el contenedor a vCPU de la VM, no a núcleos físicos del host. Nada impide que el hilo escritor termine en un núcleo de eficiencia. Eso afectaría al tiempo de servicio, no a la capacidad agregada, y **solo se resuelve en un host Linux con núcleos físicos dedicados** — es decir, en el banco TEC-2.
 
-**Del alcance.** Tres cosas declaradas en el diseño y no implementadas, que dejan afirmaciones sin evidencia:
-
-| Sin implementar | Qué queda sin probar |
-|---|---|
-| ~~Journaling~~ | ✅ **implementado y medido** (§4.5): en paralelo cuesta el 0,9 % de la latencia mediana; en serie, el 26,5 % |
-| ~~CPU por proceso~~ | ✅ **medido** (§5.6): 23,6 % de un núcleo en media, 58,3 % máximo. La cláusula de H2 queda respaldada |
-| **JFR** | atribuir los atascos aislados a GC, JIT o contención del host |
+**Del alcance.** Lo único declarado en el diseño que sigue sin construir es la **exportación a Prometheus y Grafana**: las curvas de esta página salen de k6 y del log del motor. No afecta a ninguna afirmación — solo a la comodidad de leerlas.
 
 **De la interpretación.** Dos advertencias sobre el veredicto:
 
 - **S = 8 ms es una hipótesis, no una medición.** Es el escenario C estimado, no el costo de una lógica de negocio real que el PoC no implementa. Lo que la corrida demuestra es que *si* el costo por orden fuera de 8 ms, el ASR se cumple. El número a verificar cuando la lógica exista sigue siendo el presupuesto de 12,4 ms.
-- **El p99.9 excede el SLA en el pico, y la cifra medida es un piso**: 231 ms en F2+F3 y 352 ms en F4, contra 200 ms. El contrato es sobre p95 y se cumple, pero una de cada mil órdenes lo excede. Viene de la clase pesada del modelo —138 ms de servicio ella sola— sumada a la cola. Dos advertencias. Si el contrato se endureciera a p99, S = 8 ms no alcanzaría. Y la mezcla está **acotada por construcción** en 30× la media: el A/B de forma (§4.4) muestra que sin cota el mismo escenario da **+23 %**. La magnitud de esta violación depende de una decisión de modelado que no está medida contra la lógica real.
+- **El p99.9 excede el SLA en el pico, y la cifra medida es un piso**: 231 ms en F2+F3 y 352 ms en F4, contra 200 ms. El contrato es sobre p95 y se cumple, pero una de cada mil órdenes lo excede. Viene de la clase pesada del modelo —138 ms de servicio ella sola— sumada a la cola.
+
+  Dos advertencias. Si el contrato se endureciera a p99, S = 8 ms no alcanzaría. Y la mezcla está **acotada por construcción** en 30× la media: el A/B de forma (§4.4) muestra que sin cota el mismo escenario da **+23 %**. La magnitud depende de una decisión de modelado que nadie ha contrastado con la lógica real.
 
 ---
 

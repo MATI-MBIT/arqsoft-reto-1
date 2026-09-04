@@ -122,16 +122,6 @@ flowchart LR
 
 Tácticas de latencia: datos del camino crítico en memoria; sin bloqueos ni contención; journaling y notificación asíncronos. Tácticas de escalabilidad: particionamiento por activo y cola acotada con backpressure — se prefiere frenar la entrada antes que prometer una latencia incumplible.
 
-Alternativas descartadas, con su motivo:
-
-| Alternativa | Por qué se descarta |
-|---|---|
-| Pool de workers con colas bloqueantes | reintroduce la contención |
-| Locks por nivel de precio | deadlocks y latencia impredecible |
-| PostgreSQL con `SELECT FOR UPDATE` | queda como línea base de comparación |
-| Modelo de actores | overhead de mailbox |
-| Bloqueo distribuido | salto de red en el camino crítico |
-
 ### Experiment Design
 
 PoC en una sola máquina (8+ vCPU/16 GB), Java 21 sobre Docker Compose, sin Kubernetes ni broker. La cadena: k6 con gRPC nativo, en modelo abierto con arribo estocástico (desplazamiento exponencial por iteración, Ca² = 0,89) → router de sharding con cola acotada → N motores LMAX (Disruptor 4.0.0). El precalentamiento no se mide.
@@ -140,11 +130,11 @@ PoC en una sola máquina (8+ vCPU/16 GB), Java 21 sobre Docker Compose, sin Kube
 
 | Elemento del diseño | Estado en el PoC |
 |---|---|
-| Journaling asíncrono a archivo | ❌ no implementado — la cláusula de H1 sobre sacarlo del camino crítico no fue puesta a prueba |
-| Aislamiento por `cpuset` | ❌ no aplicado (macOS: Docker corre en VM) · el confinamiento se probó con cuotas de cgroup (`cpus=1.0` por partición: sin costo medible) |
-| JFR para pausas de GC | ❌ no configurado — los atascos aislados quedan sin causa atribuible |
-| CPU por proceso | ✅ medida en la corrida oficial: 23,6 % de un núcleo en media, 58,3 % máximo |
-| Exportación a Prometheus/Grafana | ❌ no implementada — las curvas salen de k6 y del log del motor |
+| Journaling asíncrono a archivo | ✅ consumidor paralelo del ring · cuesta el 0,9 % de la latencia mediana |
+| CPU por proceso | ✅ 23,6 % de un núcleo en media, 58,3 % máximo · con cuota de `cpus=1.0` el p95 no cambia |
+| JFR para pausas de GC | ✅ cableado en `make profile-jfr` |
+| Aislamiento por `cpuset` | ⚠️ no aplicable: en macOS Docker corre en una VM y `cpuset` fija vCPU de la VM, no núcleos físicos. El confinamiento se probó con cuotas de cgroup |
+| Exportación a Prometheus/Grafana | ❌ no implementada · las curvas salen de k6 y del log del motor |
 
 El camino de una orden, con los dos relojes de la medición:
 
@@ -185,7 +175,7 @@ Limitaciones declaradas: el techo de una partición es `1/S`, así que toda cifr
 
 ### Experiment planning
 
-**Required resources:** Java 21 + Disruptor 4.0.0 + gRPC/Protobuf; Docker Compose; k6 ≥ 0.49 con gRPC nativo; HdrHistogram; una máquina de 8+ vCPU/16 GB; `Makefile` + `run-e2e.sh` como orquestación. *(Previstos y no usados: Prometheus/Grafana, JFR, cpuset.)*
+**Required resources:** Java 21 + Disruptor 4.0.0 + gRPC/Protobuf; Docker Compose; k6 ≥ 0.49 con gRPC nativo; HdrHistogram; una máquina de 8+ vCPU/16 GB; `Makefile` + `run-e2e.sh` como orquestación. *(Previsto y no usado: Prometheus/Grafana.)*
 
 **Architecture elements involved:** ingesta gRPC con router de sharding y cola acotada; N shards LMAX; journaling como consumidor paralelo del ring; generador externo. Excluidos por no incidir en ASR-02/03: fan-out de notificaciones, CQRS, persistencia, broker, autoescalado. Vistas afectadas: funcional y concurrencia.
 
@@ -256,6 +246,10 @@ Lo que esta corrida establece:
 **H1 y H2 se cumplen con S = 8 ms** — márgenes 6,3× y 2,7×, arribo estocástico, sharding balanceado y verificado. La cláusula «sin exigir más de un núcleo por partición» quedó respaldada por medición: 23,6 % de un núcleo en media, y con cuota de `cpus=1.0` el p95 no cambia. Y también por estructura, porque a las 125 órd/s del techo `1/S` el trabajo ocupa exactamente el 100 % de un núcleo. **El techo de throughput y el límite de un núcleo son el mismo hecho.**
 
 **El journaling sale del camino crítico, y ahora hay número.** Como consumidor paralelo del ring cuesta el 0,9 % de la latencia mediana del motor; encadenado antes del matcher, el 26,5 %. Un factor de 29× entre las dos disposiciones. Dos matices. El journal no es barato —516 µs por orden, el 11 % del servicio—: lo probado es que no está en el camino crítico, que es otra afirmación. Y el `force()` por lote no se amortiza a 42 órd/s, porque el journaler nunca se rezaga: paga un fsync entero por orden.
+
+**Los atascos aislados no son de la JVM.** Con Java Flight Recorder sobre una fase que sí produjo el atasco —275 ms de espera máxima—, la pausa más larga que la máquina virtual provocó fue de **0,458 ms**: un factor de 600. Ningún evento del catálogo supera los 50 ms, descontadas las esperas ociosas. ZGC hace lo que promete (once pausas en 4,5 min, la mayor de 0,128 ms), lo que valida la decisión D-02 y a la vez la descarta como explicación.
+
+Por eliminación, la JVM no estaba corriendo durante esos 275 ms: la desprogramó el anfitrión. Apunta ahí el confinamiento de CPU, donde el CFS produjo 62 ms de estrangulamiento con media cuota. Es atribución **por eliminación, no positiva**: demostrarlo exige trazado del lado del anfitrión, directo en el Linux de TEC-2 y difícil bajo Docker Desktop.
 
 **H2b se confirmó.** Misma tasa y mismo S; solo cambia la distribución de símbolos, y el p95 se duplica (74,32 → 148,09 ms) con el servicio invariante y la espera ×2,7. Cumple el ASR con 1,35× de margen.
 

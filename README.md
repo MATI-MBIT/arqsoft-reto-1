@@ -57,6 +57,10 @@ make smoke     # humo de ~1 min para verificar el montaje
 | `make sweep-hot` / `make sweep-n4` | El mismo barrido en el peor caso (todo el pico en una partición: **8,5 ms/orden**) y con N=4 |
 | `make f4-explore` / `make f4-peak PEAK=n` | Busca el punto de quiebre de un shard (corridas cortas a 250/500/1000/s o tasa libre) |
 | `make compare-sharding PEAK=n` | Corre la misma carga repartida sobre N=2 y luego N=4: evidencia de escalamiento por sharding |
+| `make compare-cpus` | Confina cada partición con una cuota de CPU (0 / 2 / 1 / 0,5 núcleos) y mide el efecto. Con un núcleo el p95 no cambia; con medio se degrada un 72 % |
+| **`make verify-limits`** | Lee el cgroup real y lo contrasta con lo declarado. `deploy.resources` se ignora en silencio fuera de Swarm, así que el YAML no es prueba de nada |
+| `make compare-journal` | Journaling `off` / `paralelo` / `serie`: prueba la cláusula de H1 sobre mantenerlo fuera del camino crítico |
+| `make profile-jfr` | Perfila una fase con Java Flight Recorder para atribuir los atascos aislados a GC, JIT o safepoints |
 | `make e2e BIZ_MICROS=n` | **Ciclo oficial completo** (~1h50m). Declarar el punto de operación es obligatorio: con `BIZ_MICROS=0` se mide el patrón con la lógica de negocio apagada y el p95 resultante no es el de un motor real |
 | `make experimento` | Secuencia oficial sobre una topología ya levantada: F1 → F2+F3 → F4 |
 | `make logs` / `make ps` / `make down` | Operación de la topología |
@@ -64,7 +68,11 @@ make smoke     # humo de ~1 min para verificar el montaje
 
 ## Cómo se mide
 
-k6 mide la latencia extremo a extremo del RPC (modelo abierto de llegada, sin *coordinated omission*) con umbral `p(95)<200`; cada shard registra internamente arribo → materialización en HdrHistogram, publica ventanas de 10 s para ver la evolución y un `ACUMULADO` de toda la fase al cerrar. Solo el acumulado es comparable cifra a cifra con k6, y su resta es el costo de transporte. Un `status=REJECTED` es la señal de backpressure de la cola acotada — en F1–F3 el criterio exige 0 rechazos.
+k6 mide la latencia extremo a extremo del RPC con umbral `p(95)<200`, en modelo abierto de llegada para evitar *coordinated omission*. Cada shard mide por dentro el arribo → materialización con HdrHistogram.
+
+El shard publica ventanas de 10 s para ver la evolución, y un `ACUMULADO` de toda la fase al cerrar. Solo el acumulado es comparable cifra a cifra con k6, y su resta es el costo de transporte. Un `status=REJECTED` es la señal de backpressure de la cola acotada — en F1–F3 el criterio exige 0 rechazos.
+
+El motor **registra cada orden** en un journal de solo-anexado cuando `JOURNAL=paralelo` o `serie`, y admite **cuotas de CPU** por partición (`SHARD_CPUS`) y **grabación con JFR** (`make profile-jfr`).
 
 **Ninguna cifra se lee sin su `S` al lado**: el PoC no implementa la lógica de negocio, y ese costo por orden gobierna el techo del shard (`1/S`), el reparto motor/transporte y si la partición caliente amenaza el SLA. Se declara con `BIZ_MICROS`. Detalle completo en [`docs/implementacion.md`](docs/implementacion.md) y resultados en [`docs/evidencia-corridas.md`](docs/evidencia-corridas.md).
 

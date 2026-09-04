@@ -17,6 +17,26 @@
 # ==============================================================================
 set -uo pipefail
 
+# Un backend caido responde mas rapido que uno vivo: los RPC fallan al instante y
+# el p95 sale mejor que en una corrida buena. Sin este guardia, un experimento
+# roto entrega una cifra plausible. Se verifica que los checks pasaron y que el
+# motor emitio su ACUMULADO antes de creerle a ningun numero.
+verificar_corrida() {
+  local k6out="$1" shardlog="${2:-}"
+  local ok
+  ok="$(grep -E "^[[:space:]]+checks_succeeded" "$k6out" | grep -oE '[0-9]+\.[0-9]+%' | head -1)"
+  if [ "${ok%%.*}" != "100" ]; then
+    echo "  ✗ CORRIDA INVALIDA: checks_succeeded=$ok (se esperaba 100%)"
+    grep -E "^[[:space:]]+checks_failed" "$k6out" | sed 's/^/    /'
+    return 1
+  fi
+  if [ -n "$shardlog" ] && ! grep -q ACUMULADO "$shardlog" 2>/dev/null; then
+    echo "  ✗ CORRIDA INVALIDA: el motor no emitio ACUMULADO"
+    return 1
+  fi
+  return 0
+}
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE="docker compose -f $ROOT/deploy/docker-compose.yml"
 MODOS="${*:-off paralelo serie}"

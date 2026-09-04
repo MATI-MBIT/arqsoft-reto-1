@@ -16,7 +16,7 @@ flowchart LR
     K6["k6 (generador)\nmodelo abierto de llegada"] -- "gRPC :8080\nSubmitOrder" --> R
     subgraph Docker Compose
       R["ingest-router\nhash(símbolo) % N\ncola acotada (Semaphore)"]
-      R -- "gRPC :9090" --> S0["matching-shard-0\nring buffer → single writer\nlibro en memoria"]
+      R -- "gRPC :9090" --> S0["matching-shard-0\nring buffer → journal ∥ matcher\nlibro en memoria"]
       R -- "gRPC :9090" --> S1["matching-shard-1"]
       R -. "perfil n4" .-> S2["matching-shard-2"]
       R -. "perfil n4" .-> S3["matching-shard-3"]
@@ -31,19 +31,23 @@ Cada **shard es un proceso** (un contenedor): una partición del universo de act
 2. **`RouterService`** intenta adquirir un permiso del `Semaphore` (cola acotada). Si no hay cupo, responde `REJECTED` de inmediato — esa es la señal de backpressure; nada se encola sin límite.
 3. Con permiso, calcula `shard = Math.floorMod(symbol.hashCode(), N)` y reenvía la orden por el stub asíncrono del shard dueño. Todas las órdenes de un mismo símbolo caen siempre en el mismo shard: el enrutamiento es determinístico.
 4. **`IngestGrpcService`** (en el shard) toma `t0 = System.nanoTime()` — el "arribo al motor" de la medida de ASR-02 — e intenta publicar en el ring buffer con `tryNext()`. Si el ring está lleno responde `REJECTED` sin bloquear los hilos de gRPC.
-5. El **único hilo consumidor** (`MatchingHandler`, hilo `matcher-shard-N`) toma el evento en orden de llegada, busca el `OrderBook` del símbolo y ejecuta el matching por prioridad precio-tiempo. No hay locks: nadie más puede tocar ese libro, por construcción.
-6. El handler registra `latencia = now − t0` (µs) en el `Recorder` de HdrHistogram, completa el `CompletableFuture` con el `OrderResponse` (estado `MATCHED` / `PARTIALLY_MATCHED` / `RESTING`, cantidad materializada, latencia interna y shard) y **limpia el slot** para que se recicle sin generar basura.
-7. La respuesta viaja de vuelta shard → router → k6, que la cuenta en `grpc_req_duration`. El permiso del semáforo se libera al completarse el RPC.
+5. El **único hilo escritor** (`MatchingHandler`, hilo `matcher-shard-N`) toma el evento en orden de llegada, busca el `OrderBook` del símbolo y ejecuta el matching por prioridad precio-tiempo. No hay locks: nadie más puede tocar ese libro, por construcción. Luego aplica `BusinessLogicModel`, que consume el costo por orden declarado en la corrida.
+6. El handler registra en tres `Recorder` de HdrHistogram —espera, servicio y total— y completa el `CompletableFuture` con el `OrderResponse`: estado `MATCHED` / `PARTIALLY_MATCHED` / `RESTING`, cantidad materializada, latencia interna y shard.
+7. Con `JOURNAL` activo, un **`JournalHandler` consume el mismo evento en paralelo** y lo escribe en un archivo de solo-anexado, con `force()` una vez por lote. No suma latencia al cliente, pero el acuse se emite sin esperar al disco. En modo `serie` va encadenado *antes* del matcher: el acuse implica durabilidad y el journal entra al camino crítico.
+8. Un **manejador de limpieza encadenado al final** vacía el slot para que se recicle sin generar basura. Va ahí y no en el matcher porque, con consumidores en paralelo, **ninguno puede mutar el evento**: el slot pertenece al ring hasta que todos pasaron.
+9. La respuesta viaja de vuelta shard → router → k6, que la cuenta en `grpc_req_duration`. El permiso del semáforo se libera al completarse el RPC.
 
 Dos relojes miden lo mismo desde extremos distintos: k6 mide la latencia completa del RPC y el shard mide arribo → materialización. La diferencia entre ambos es el costo del transporte + router, y contrastarlas descarta que el generador contamine el resultado.
 
-Para que esa resta sea válida los dos lados deben publicar **el mismo estadístico**. El shard emite un histograma por ventana de 10 s —útil para ver la evolución dentro de una fase— y además acumula todas las ventanas en un histograma de la corrida completa, que publica al recibir `SIGTERM` con el prefijo `ACUMULADO`. Solo esos son percentiles de la población entera y comparables cifra a cifra con los de k6: **la mediana de los p95 por ventana no es un p95**. El shard descompone además su propio tiempo en `total = espera + servicio`, lo que distingue «hay que abaratar la orden» de «hay que shardear más».
+Para que esa resta sea válida los dos lados deben publicar **el mismo estadístico**. El shard publica dos cosas distintas. Una es un histograma por ventana de 10 s, útil para ver la evolución dentro de una fase. La otra acumula todas las ventanas y sale al recibir `SIGTERM`, con el prefijo `ACUMULADO`.
+
+Solo el acumulado da percentiles de la población entera, y solo esos son comparables cifra a cifra con los de k6: **la mediana de los p95 por ventana no es un p95**. El shard descompone además su tiempo en `total = espera + servicio`, lo que distingue «hay que abaratar la orden» de «hay que shardear más».
 
 ## 3. Módulos
 
 ### `services/common-proto`
 
-Contrato único de ingesta (`matching.proto`), compilado con `protobuf-gradle-plugin`. Decisiones del contrato: precios como `int64 price_cents` (sin aritmética flotante en el camino crítico), `Status.REJECTED` como parte del contrato (el backpressure es semántica del dominio, no un error de transporte), y `engine_latency_micros` en la respuesta para el contraste de relojes descrito arriba. Tanto el router como los shards implementan **el mismo servicio gRPC**, lo que permite apuntar k6 directo a un shard si se quiere aislar el costo del router.
+Contrato único de ingesta (`matching.proto`), compilado con `protobuf-gradle-plugin`. Tres decisiones del contrato. Precios como `int64 price_cents`, sin aritmética flotante en el camino crítico. `Status.REJECTED` dentro del contrato, porque el backpressure es semántica del dominio y no un error de transporte. Y `engine_latency_micros` en la respuesta, para el contraste de relojes. Tanto el router como los shards implementan **el mismo servicio gRPC**, lo que permite apuntar k6 directo a un shard si se quiere aislar el costo del router.
 
 ### `services/ingest-router`
 
@@ -58,9 +62,10 @@ El router es **sin estado**: no conoce libros ni órdenes. Por eso en el diseño
 
 | Clase | Responsabilidad |
 |---|---|
-| `EngineMain` | Arranque del shard: construye el `Disruptor` (`ProducerType.MULTI` — publican varios hilos gRPC; consume uno solo), levanta el servidor gRPC y el reporte de percentiles cada 10 s. |
+| `EngineMain` | Arranque del shard: construye el `Disruptor` (`ProducerType.MULTI` — publican varios hilos gRPC), cablea la cadena de consumidores según `JOURNAL`, levanta el servidor gRPC y el reporte de percentiles cada 10 s. Al recibir `SIGTERM` publica los percentiles `ACUMULADO` de la fase completa. Declara en el log su punto de operación y sus recursos visibles: ninguna corrida debe ser ambigua. |
 | `IngestGrpcService` | Borde gRPC → ring buffer con `tryNext()` (backpressure sin bloqueo). Estampa el `t0` de la medición. |
-| `MatchingHandler` | El *single writer* del patrón LMAX: procesa secuencialmente, sin locks; un `HashMap<String, OrderBook>` por shard; registra latencia y completa el futuro. |
+| `MatchingHandler` | El *single writer* del patrón LMAX: procesa secuencialmente, sin locks; un `HashMap<String, OrderBook>` por shard; descompone la latencia en espera y servicio, y completa el futuro. **No muta el slot** — ver el paso 8 del camino crítico. |
+| `JournalHandler` | Registro de solo-anexado, con `force()` una vez por lote (`endOfBatch`) y escritura sin asignar en el camino crítico. Se cablea en paralelo o en serie con el matcher: la diferencia entre las dos disposiciones es la cláusula de H1 sobre mantener el journaling fuera del camino crítico. |
 | `OrderBook` | Libro de un activo: `TreeMap<precio, ArrayDeque<Resting>>` para compras (descendente) y ventas (ascendente); matching por prioridad precio-tiempo con cruce parcial y resto en reposo. **No es thread-safe a propósito** — la exclusión la da el diseño, no los locks. |
 | `BusinessLogicModel` | **Modelo sintético del tiempo de servicio** de la lógica que el PoC no implementa (validación, riesgo, tipos de orden, comisiones, trades). Quema CPU —no duerme— en el hilo del único escritor. Dos perillas: `BIZ_MICROS` (la media) y `BIZ_DIST` (la forma). Apagado por defecto. |
 | `OrderSlot` | Entrada mutable y preasignada del ring: se rellena al publicar y se limpia al consumir, para que en régimen el camino crítico no genere basura (menos presión de GC). |
@@ -89,7 +94,17 @@ El router es **sin estado**: no conoce libros ni órdenes. Por eso en el diseño
 | `RING_SIZE` | engine | 16384 | Tamaño del ring buffer (potencia de 2) |
 | `BIZ_MICROS` | engine | 0 | Costo **medio** por orden (µs) del modelo de tiempo de servicio; 0 = apagado. No es el costo de cada orden: el modelo es una distribución |
 | `BIZ_DIST` | engine | `mezcla` | Forma de esa distribución: `mezcla` (tres clases discretas) o `lognormal` (continua, sin cota). Ambas comparten media y Cs², así que un A/B entre ellas aísla la forma |
-| `JAVA_OPTS` | ambos (Docker) | ZGC, 256–512 MB | Flags de la JVM |
+| `JOURNAL` | engine | `off` | Disposición del journaling: `off`, `paralelo` (consumidor paralelo del ring) o `serie` (encadenado antes del matcher). Ver §6 |
+| `JOURNAL_DIR` | engine | `/var/lib/engine/journal` | Directorio del archivo de solo-anexado, montado en un volumen |
+| `JFR_OPTS` | engine | vacío | Flags de Java Flight Recorder. Se **anexan** a `JAVA_OPTS`, no lo reemplazan: sustituirlo apagaría ZGC sin avisar |
+| `SHARD_CPUS` | engine | `0` (sin límite) | Cuota de CPU por partición, en núcleos. Clave `cpus` de nivel superior — `deploy.resources` se ignora en silencio fuera de Swarm |
+| `SHARD_CPUSET` | engine | vacío | Núcleos concretos a los que se fija el contenedor |
+| `SHARD_MEM` | engine | `0` (sin límite) | Límite de memoria del contenedor |
+| `JAVA_OPTS` | ambos | ZGC, 256–512 MB | Flags de la JVM. **Se define en el `Dockerfile`**, no en Compose; Compose solo puede sobreescribirla |
+
+**Los límites de recursos se verifican, no se declaran.** `make verify-limits` lee el cgroup real con `docker inspect` y lo contrasta con lo pedido, además de imprimir el `availableProcessors` que la JVM cree tener. Sin esa comprobación, un límite escrito en el YAML pero no aplicado produce una corrida que parece confinada y no lo está.
+
+**Volúmenes.** Ocho volúmenes con nombre: `journal-0..3` para los archivos de journaling y `jfr-0..3` para las grabaciones. El journal no puede ir a la capa de escritura del contenedor, que es un overlay y no representa un disco.
 
 Todo el ciclo de vida está en el **Makefile**: `make build`, `make up` / `make up-n4`, `make smoke`, `make f1|f2|f4`, `make experimento`, `make logs`, `make down`. Cambiar N=2 → N=4 no toca código: el perfil `n4` del compose levanta dos shards más y `make up-n4` le pasa al router la lista de 4.
 
@@ -102,7 +117,7 @@ Todo el ciclo de vida está en el **Makefile**: `make build`, `make up` / `make 
 - **Criterio de éxito p95 ≤ 200 ms** como threshold de k6 (falla la corrida en vivo); p99/p99.9 se registran como observación (`summaryTrendStats`).
 - **Doble punto de medida**: `grpc_req_duration` en k6 vs. HdrHistogram del shard (logueado cada 10 s). La brecha entre ambos aísla el costo de red/router.
 - **Rechazos como métrica de primera clase**: el contador `orders_rejected_backpressure` debe ser 0 en F1–F3; en F4 su aparición es parte del resultado (dónde se activa la protección). Medido en el barrido de servicio: **el sistema se degrada por latencia mucho antes que por rechazo** — ni siquiera a ρ = 1,01 se activó el backpressure, así que este criterio por sí solo no protege de nada.
-- **Iteraciones descartadas como criterio de validez**: `dropped_iterations` debe ser 0 en F1–F3 (threshold de k6). k6 descarta una iteración cuando no tiene un VU libre; esa es carga que **nunca se aplicó**, así que el p95 resultante subestima al sistema. Según la documentación de k6, si los descartes aparecen ya avanzada la corrida son además síntoma de degradación del propio motor.
+- **Iteraciones descartadas como criterio de validez**: `dropped_iterations` debe ser 0 en F1–F3, con umbral de k6. k6 descarta una iteración cuando no tiene un VU libre, y esa es carga que **nunca se aplicó**: el p95 resultante subestima al sistema. Según la documentación de k6, si los descartes aparecen ya avanzada la corrida son además síntoma de degradación del propio motor.
 - **Precalentamiento**: los primeros minutos de cada corrida estabilizan JIT/GC y se excluyen del análisis.
 
 ### El tiempo de servicio como parámetro del experimento
@@ -115,7 +130,9 @@ techo de un shard = 1 / S          ρ = λ · S
 
 Medir la capacidad con S de microsegundos mide un `TreeMap`, no un motor. Como no hay estimación del costo real, `BusinessLogicModel` lo vuelve un **parámetro barrido** (`make sweep-service`) y el entregable deja de ser un número suelto para ser un **presupuesto de tiempo de servicio**, falsable sin conocer todavía la lógica de negocio.
 
-El modelo respeta dos reglas: **quema CPU en vez de dormir** (un `sleep` devuelve el núcleo, no ensucia la caché ni compite con gRPC, y su granularidad en la JVM es de milisegundos) y **muestrea de una distribución sesgada** en vez de una constante, porque el costo real depende de los datos —una orden que no cruza es barata, una que barre cinco niveles es cara— y esa varianza (Cs²) entra en Kingman igual que la del arribo.
+El modelo respeta dos reglas. **Quema CPU en vez de dormir**: un `sleep` devuelve el núcleo, no ensucia la caché ni compite con gRPC, y su granularidad en la JVM es de milisegundos.
+
+Y **muestrea de una distribución sesgada** en vez de una constante. El costo real depende de los datos —una orden que no cruza es barata, una que barre cinco niveles es cara— y esa varianza entra en Kingman igual que la del arribo.
 
 `BIZ_MICROS` fija la **media**, no el costo de cada orden. Por defecto la distribución es una mezcla de tres clases (90 % ×1, 9 % ×6, 1 % ×30) con Cs² = 3,34 —más variable que una exponencial, que da 1— acotada por construcción en ~17× la media. A S = 8 ms eso significa que una orden cuesta **4,6, 27,6 o 138 ms** según su clase.
 
@@ -125,7 +142,7 @@ Resultados medidos (ver `evidencia-corridas.md`): **el presupuesto es ≈ 12,4 m
 
 Esas dos cifras dan 1,46×, no 2×, y la razón es aritmética y no una ineficiencia: **shardear reduce la espera, nunca el servicio**. Repartir la carga baja ρ, pero el tiempo de servicio es latencia también y subir el presupuesto lo sube directo. Corolario de diseño: ninguna cantidad de particiones permite que una orden que cuesta 200 ms cumpla un SLA de 200 ms.
 
-La semilla del modelo es `42 + shardId`, **distinta por partición a propósito**: con una semilla común todas sacaban la misma secuencia de tiempos de servicio y, como reciben la misma tasa, las órdenes caras caían sobre todas simultáneamente en vez de repartirse en el tiempo. La lógica real no está correlacionada entre particiones. La semilla efectiva se imprime en el log de arranque.
+La semilla del modelo es `42 + shardId`, **distinta por partición a propósito**. Con una semilla común todas sacaban la misma secuencia de tiempos de servicio; como reciben la misma tasa, las órdenes caras caían sobre todas a la vez en vez de repartirse en el tiempo. La lógica real no está correlacionada entre particiones. La semilla efectiva se imprime en el log de arranque.
 
 ## 7. Despliegue
 
@@ -133,8 +150,16 @@ La semilla del modelo es `42 + shardId`, **distinta por partición a propósito*
 
 ## 8. Limitaciones y deuda (declaradas en E01)
 
-Una sola máquina por loopback — no representa la red de 1 Gbps de TEC-2 ni alta disponibilidad; valida el patrón, no el dimensionamiento. Excluidos por no incidir en ASR-02/03: fan-out de notificaciones, proyecciones CQRS, persistencia durable, broker de eventos y autoescalado. Deuda de decisión a re-evaluar con datos: la estrategia de espera del Disruptor (el PoC usa `BlockingWaitStrategy`, amable con la máquina compartida; `Yielding`/`BusySpin` bajan latencia a costa de quemar un núcleo por shard) y la estructura interna del libro. El `hashCode` de `String` como función de sharding es suficiente para el PoC; un despliegue real usaría una función consistente con rebalanceo.
+Una sola máquina por loopback: no representa la red de 1 Gbps de TEC-2 ni la alta disponibilidad. Valida el patrón, no el dimensionamiento.
+
+Excluidos por no incidir en ASR-02/03: fan-out de notificaciones, proyecciones CQRS, persistencia durable, broker de eventos y autoescalado. Deuda de decisión a re-evaluar con datos: la estrategia de espera del Disruptor y la estructura interna del libro. El PoC usa `BlockingWaitStrategy`, amable con la máquina compartida; `Yielding` y `BusySpin` bajan la latencia a costa de quemar un núcleo por shard. El `hashCode` de `String` como función de sharding es suficiente para el PoC; un despliegue real usaría una función consistente con rebalanceo.
 
 ## 9. Extensiones naturales (post-experimento)
 
-Si E01 valida el patrón: (1) journaling real por shard (append-only asíncrono) para durabilidad; (2) sustituir la cola acotada del router por el log de eventos (Redpanda/Kafka) recuperando la amortiguación de D-10 tal como la describe el escenario de pruebas del equipo; (3) publicar los eventos de materialización hacia el bus para el fan-out de ASR-04 (candidato a E02); (4) repetir el mismo diseño de experimento en el banco de pruebas de 3 nodos (TEC-2) para confirmar que la reducción de escala no ocultó efectos de red.
+Si E01 valida el patrón:
+
+1. **Sustituir la cola acotada del router por un log de eventos** (Redpanda o Kafka), recuperando la amortiguación de D-10 tal como la describe el escenario de pruebas del equipo.
+2. **Publicar los eventos de materialización hacia el bus** para el fan-out de ASR-04, candidato a E02.
+3. **Repetir el mismo diseño en el banco de 3 nodos (TEC-2)**, para confirmar que la reducción de escala no ocultó efectos de red.
+
+El journaling por shard ya no está en esta lista: se construyó como consumidor paralelo del ring y se midió (§6).

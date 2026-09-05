@@ -29,7 +29,8 @@
         "x": 0,
         "y": 0
       },
-      "panels": []
+      "panels": [],
+      "id": 1
     },
     {
       "type": "text",
@@ -43,7 +44,8 @@
       "options": {
         "mode": "markdown",
         "content": "\n**Si** el motor procesa las órdenes una por una, en memoria y sin esperar a nadie —ni base de datos, ni candados, ni otros hilos—, **entonces** responde a tiempo en operación normal. Con una cláusula: el registro durable va **fuera** del camino crítico.\n\n**Cómo leer este bloque.** Las barras dicen *si cumple* — verde por debajo de los 200 ms del contrato, rojo por encima. Las líneas dicen *cómo se comportó mientras corría*: si la latencia se mantuvo plana o se fue degradando, y si el tiempo se fue esperando en fila o trabajando. · En la bitácora se mira la **mediana del motor**, no el p95: el efecto es de medio milisegundo y el p95 no lo distingue del ruido.\n"
-      }
+      },
+      "id": 2
     },
     {
       "type": "bargauge",
@@ -135,7 +137,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "id": 3
     },
     {
       "type": "bargauge",
@@ -223,7 +226,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "id": 4
     },
     {
       "type": "timeseries",
@@ -336,7 +340,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "id": 5
     },
     {
       "type": "timeseries",
@@ -453,7 +458,8 @@
             ]
           }
         ]
-      }
+      },
+      "id": 6
     },
     {
       "type": "row",
@@ -465,7 +471,8 @@
         "x": 0,
         "y": 23
       },
-      "panels": []
+      "panels": [],
+      "id": 7
     },
     {
       "type": "text",
@@ -479,7 +486,8 @@
       "options": {
         "mode": "markdown",
         "content": "\n**Si** las órdenes se reparten entre varios motores independientes —cada activo siempre en el mismo motor—, **entonces** el sistema aguanta el pico de mercado sin dejar de responder a tiempo. La ficha exige además decir **cuántos motores bastan**: ese número no se supone, se mide.\n\n**Cómo leer este bloque.** La primera barra busca el mínimo que cumple; la segunda pregunta si una partición cabe en un núcleo, que es lo que el patrón implica. El barrido de abajo busca **a qué tasa deja de cumplir** cada topología: si la capacidad escala, el quiebre debería moverse en proporción —el doble con dos particiones, el cuádruple con cuatro—. Al lado, cómo se degrada cada una mientras sube la carga.\n"
-      }
+      },
+      "id": 8
     },
     {
       "type": "bargauge",
@@ -571,7 +579,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "id": 9
     },
     {
       "type": "bargauge",
@@ -675,7 +684,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "id": 10
     },
     {
       "type": "timeseries",
@@ -748,7 +758,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "id": 11
     },
     {
       "type": "bargauge",
@@ -852,7 +863,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "id": 12
     },
     {
       "type": "bargauge",
@@ -956,7 +968,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "id": 13
     },
     {
       "type": "bargauge",
@@ -1060,7 +1073,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "id": 14
     },
     {
       "type": "timeseries",
@@ -1269,7 +1283,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "id": 15
     },
     {
       "type": "row",
@@ -1281,7 +1296,8 @@
         "x": 0,
         "y": 59
       },
-      "panels": []
+      "panels": [],
+      "id": 16
     },
     {
       "type": "text",
@@ -1295,7 +1311,8 @@
       "options": {
         "mode": "markdown",
         "content": "\n**Si** todo el pico se concentra en un solo activo, **entonces** el sistema deja de responder a tiempo **antes** de llegar al pico completo. Es el caso donde repartir no ayuda: las órdenes de un activo las atiende siempre el mismo motor y los demás no pueden echarle una mano.\n\n**Cómo leer este bloque.** Si la barra de 84 órd/s —el pico contractual— sale **verde**, la apuesta queda **refutada**: la partición caliente aguanta lo que se predijo que no aguantaría, y una hipótesis refutada también es un resultado. A la derecha, la cola formándose: es el mecanismo del quiebre, no su veredicto.\n"
-      }
+      },
+      "id": 17
     },
     {
       "type": "bargauge",
@@ -1399,7 +1416,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "id": 18
     },
     {
       "type": "timeseries",
@@ -1516,7 +1534,8 @@
             ]
           }
         ]
-      }
+      },
+      "id": 19
     },
     {
       "type": "timeseries",
@@ -1625,7 +1644,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "id": 20
     },
     {
       "type": "row",
@@ -1637,7 +1657,8 @@
         "x": 0,
         "y": 75
       },
-      "panels": []
+      "panels": [],
+      "id": 21
     },
     {
       "type": "text",
@@ -1651,7 +1672,8 @@
       "options": {
         "mode": "markdown",
         "content": "\nEl prototipo **no implementa la lógica de negocio** —validar, verificar riesgo y saldos, calcular comisiones, generar el trato—. Como el motor procesa de a una, ese costo se serializa y fija el techo: **techo = 1 ÷ costo por orden**. Medir la capacidad con el cruce de juguete del prototipo mediría una estructura de datos, no un motor de bolsa.\n\nPor eso el entregable no es una cifra de latencia sino un **presupuesto**: *el diseño cumple el contrato mientras procesar una orden cueste menos de X*. Cuando la lógica real exista, se mide su costo y se compara contra X — la afirmación es verificable desde hoy.\n\n**Cómo leer este bloque.** El presupuesto es el último costo que queda en verde. Y a la derecha, el mecanismo: el trabajo sigue al costo declarado, pero lo que dispara la latencia es la **espera**.\n"
-      }
+      },
+      "id": 22
     },
     {
       "type": "bargauge",
@@ -1767,7 +1789,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "id": 23
     },
     {
       "type": "bargauge",
@@ -1871,7 +1894,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "id": 24
     },
     {
       "type": "timeseries",
@@ -1988,324 +2012,374 @@
             ]
           }
         ]
-      }
+      },
+      "id": 25
     },
     {
       "type": "row",
-      "title": "Procedencia — con qué corrió cada una (desplegar)",
-      "collapsed": true,
+      "title": "Con qué corrió cada una — la procedencia de todo lo de arriba",
+      "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 93
       },
-      "panels": [
+      "panels": [],
+      "id": 26
+    },
+    {
+      "type": "table",
+      "title": "Con qué configuración corrió cada una",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-e01"
+      },
+      "description": "No es la lista de lo que se PIDIÓ: es lo que el motor reportó al arrancar. Existe porque una corrida anunció un costo de 8 ms por orden y arrancó con la lógica de negocio apagada, y nadie lo notó hasta mucho después. Aquí se ve si lo que corrió es lo que se quería correr.\n\n«Techo que implica» es 1 ÷ costo por orden: las órdenes por segundo que la aritmética predice para una partición con ese costo.",
+      "gridPos": {
+        "h": 13,
+        "w": 24,
+        "x": 0,
+        "y": 94
+      },
+      "targets": [
         {
-          "type": "table",
-          "title": "Con qué corrió cada corrida",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "description": "Sin esto, dos corridas con resultados distintos son indistinguibles. El techo teórico es 1 ÷ costo por orden: la capacidad que la aritmética predice para una partición.",
-          "gridPos": {
-            "h": 12,
-            "w": 24,
-            "x": 0,
-            "y": 94
+          "expr": "max by (corrida, forma, journal) (max_over_time(engine_info{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
+          "legendFormat": "",
+          "refId": "A",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
           },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus-e01"
-              },
-              "expr": "max by (corrida, forma, journal, cs2) (engine_info)",
-              "legendFormat": "",
-              "refId": "A",
-              "editorMode": "code",
-              "range": false,
-              "instant": true
+          "expr": "max by (corrida) (max_over_time(engine_operating_point_micros{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
+          "legendFormat": "",
+          "refId": "B",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max by (corrida) (max_over_time(engine_ceiling_orders_per_second{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
+          "legendFormat": "",
+          "refId": "C",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max by (corrida) (max_over_time(engine_available_processors{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
+          "legendFormat": "",
+          "refId": "D",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value #A": true,
+              "cs2": true
             },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus-e01"
-              },
-              "expr": "max by (corrida) (engine_operating_point_micros)",
-              "legendFormat": "",
-              "refId": "B",
-              "editorMode": "code",
-              "range": false,
-              "instant": true
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus-e01"
-              },
-              "expr": "max by (corrida) (engine_ceiling_orders_per_second)",
-              "legendFormat": "",
-              "refId": "C",
-              "editorMode": "code",
-              "range": false,
-              "instant": true
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus-e01"
-              },
-              "expr": "max by (corrida) (engine_available_processors)",
-              "legendFormat": "",
-              "refId": "D",
-              "editorMode": "code",
-              "range": false,
-              "instant": true
+            "renameByName": {
+              "corrida": "Corrida",
+              "forma": "Forma del costo",
+              "journal": "Bitácora",
+              "Value #B": "Costo por orden",
+              "Value #C": "Techo que implica",
+              "Value #D": "Núcleos que vio"
             }
-          ],
-          "transformations": [
-            {
-              "id": "merge",
-              "options": {}
-            },
-            {
-              "id": "organize",
-              "options": {
-                "excludeByName": {
-                  "Time": true,
-                  "Value #A": true
-                },
-                "renameByName": {
-                  "corrida": "Corrida",
-                  "forma": "Forma del costo por orden",
-                  "cs2": "Variabilidad del costo (Cs²)",
-                  "journal": "Bitácora",
-                  "Value #B": "Costo medio por orden (µs)",
-                  "Value #C": "Techo teórico (órdenes/s)",
-                  "Value #D": "CPU que ve la máquina virtual"
-                }
-              }
-            },
-            {
-              "id": "sortBy",
-              "options": {
-                "fields": {},
-                "sort": [
-                  {
-                    "field": "Corrida"
-                  }
-                ]
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
-                "align": "auto",
-                "filterable": true
-              }
-            },
-            "overrides": [
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
               {
-                "matcher": {
-                  "id": "byName",
-                  "options": "Corrida"
-                },
-                "properties": [
-                  {
-                    "id": "mappings",
-                    "value": [
-                      {
-                        "type": "value",
-                        "options": {
-                          "of-f1-n2": {
-                            "text": "OFICIAL · régimen · 17 órd/s · 12 min",
-                            "index": 0
-                          },
-                          "of-f2-n2": {
-                            "text": "OFICIAL · pico 5× · 84 órd/s · 30 min",
-                            "index": 1
-                          },
-                          "of-f4-n2": {
-                            "text": "OFICIAL · todo el pico en UN activo",
-                            "index": 2
-                          },
-                          "min-n1": {
-                            "text": "¿Cuántas bastan? · 1 partición · 84 órd/s",
-                            "index": 3
-                          },
-                          "min-n2": {
-                            "text": "¿Cuántas bastan? · 2 particiones · 84 órd/s",
-                            "index": 4
-                          },
-                          "min-n4": {
-                            "text": "¿Cuántas bastan? · 4 particiones · 84 órd/s",
-                            "index": 5
-                          },
-                          "q-n1-090": {
-                            "text": "Quiebre · 1 partición · 90 órd/s",
-                            "index": 6
-                          },
-                          "q-n1-100": {
-                            "text": "Quiebre · 1 partición · 100 órd/s",
-                            "index": 7
-                          },
-                          "q-n1-110": {
-                            "text": "Quiebre · 1 partición · 110 órd/s",
-                            "index": 8
-                          },
-                          "q-n1-120": {
-                            "text": "Quiebre · 1 partición · 120 órd/s",
-                            "index": 9
-                          },
-                          "q-n2-180": {
-                            "text": "Quiebre · 2 particiones · 180 órd/s",
-                            "index": 10
-                          },
-                          "q-n2-200": {
-                            "text": "Quiebre · 2 particiones · 200 órd/s",
-                            "index": 11
-                          },
-                          "q-n2-220": {
-                            "text": "Quiebre · 2 particiones · 220 órd/s",
-                            "index": 12
-                          },
-                          "q-n2-240": {
-                            "text": "Quiebre · 2 particiones · 240 órd/s",
-                            "index": 13
-                          },
-                          "q-n4-360": {
-                            "text": "Quiebre · 4 particiones · 360 órd/s",
-                            "index": 14
-                          },
-                          "q-n4-400": {
-                            "text": "Quiebre · 4 particiones · 400 órd/s",
-                            "index": 15
-                          },
-                          "q-n4-440": {
-                            "text": "Quiebre · 4 particiones · 440 órd/s",
-                            "index": 16
-                          },
-                          "q-n4-480": {
-                            "text": "Quiebre · 4 particiones · 480 órd/s",
-                            "index": 17
-                          },
-                          "cal-084": {
-                            "text": "Activo caliente · 84 órd/s en UN activo",
-                            "index": 18
-                          },
-                          "cal-100": {
-                            "text": "Activo caliente · 100 órd/s en UN activo",
-                            "index": 19
-                          },
-                          "cal-110": {
-                            "text": "Activo caliente · 110 órd/s en UN activo",
-                            "index": 20
-                          },
-                          "cal-120": {
-                            "text": "Activo caliente · 120 órd/s en UN activo",
-                            "index": 21
-                          },
-                          "bit-off": {
-                            "text": "Bitácora · apagada",
-                            "index": 22
-                          },
-                          "bit-paralelo": {
-                            "text": "Bitácora · en paralelo",
-                            "index": 23
-                          },
-                          "bit-serie": {
-                            "text": "Bitácora · en serie (camino crítico)",
-                            "index": 24
-                          },
-                          "cpu-libre": {
-                            "text": "CPU · sin límite",
-                            "index": 25
-                          },
-                          "cpu-2": {
-                            "text": "CPU · 2 núcleos",
-                            "index": 26
-                          },
-                          "cpu-1": {
-                            "text": "CPU · 1 núcleo",
-                            "index": 27
-                          },
-                          "cpu-05": {
-                            "text": "CPU · medio núcleo",
-                            "index": 28
-                          },
-                          "pre-05": {
-                            "text": "Presupuesto · orden de 5 ms",
-                            "index": 29
-                          },
-                          "pre-10": {
-                            "text": "Presupuesto · orden de 10 ms",
-                            "index": 30
-                          },
-                          "pre-12": {
-                            "text": "Presupuesto · orden de 12 ms",
-                            "index": 31
-                          },
-                          "pre-13": {
-                            "text": "Presupuesto · orden de 13 ms",
-                            "index": 32
-                          },
-                          "pre-15": {
-                            "text": "Presupuesto · orden de 15 ms",
-                            "index": 33
-                          },
-                          "cpre-05": {
-                            "text": "Presupuesto caliente · orden de 5 ms",
-                            "index": 34
-                          },
-                          "cpre-08": {
-                            "text": "Presupuesto caliente · orden de 8 ms",
-                            "index": 35
-                          },
-                          "cpre-09": {
-                            "text": "Presupuesto caliente · orden de 9 ms",
-                            "index": 36
-                          },
-                          "cpre-10": {
-                            "text": "Presupuesto caliente · orden de 10 ms",
-                            "index": 37
-                          },
-                          "forma-lognormal": {
-                            "text": "Forma · lognormal (cola sin tope)",
-                            "index": 38
-                          },
-                          "jfr-f2": {
-                            "text": "Atascos · grabación de la JVM",
-                            "index": 39
-                          }
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "id": "custom.width",
-                    "value": 330
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "Techo teórico (órdenes/s)"
-                },
-                "properties": [
-                  {
-                    "id": "decimals",
-                    "value": 0
-                  }
-                ]
+                "field": "Corrida"
               }
             ]
           }
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Corrida"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "of-f1-n2": {
+                        "text": "OFICIAL · régimen · 17 órd/s · 12 min",
+                        "index": 0
+                      },
+                      "of-f2-n2": {
+                        "text": "OFICIAL · pico 5× · 84 órd/s · 30 min",
+                        "index": 1
+                      },
+                      "of-f4-n2": {
+                        "text": "OFICIAL · todo el pico en UN activo",
+                        "index": 2
+                      },
+                      "min-n1": {
+                        "text": "¿Cuántas bastan? · 1 partición · 84 órd/s",
+                        "index": 3
+                      },
+                      "min-n2": {
+                        "text": "¿Cuántas bastan? · 2 particiones · 84 órd/s",
+                        "index": 4
+                      },
+                      "min-n4": {
+                        "text": "¿Cuántas bastan? · 4 particiones · 84 órd/s",
+                        "index": 5
+                      },
+                      "q-n1-090": {
+                        "text": "Quiebre · 1 partición · 90 órd/s",
+                        "index": 6
+                      },
+                      "q-n1-100": {
+                        "text": "Quiebre · 1 partición · 100 órd/s",
+                        "index": 7
+                      },
+                      "q-n1-110": {
+                        "text": "Quiebre · 1 partición · 110 órd/s",
+                        "index": 8
+                      },
+                      "q-n1-120": {
+                        "text": "Quiebre · 1 partición · 120 órd/s",
+                        "index": 9
+                      },
+                      "q-n2-180": {
+                        "text": "Quiebre · 2 particiones · 180 órd/s",
+                        "index": 10
+                      },
+                      "q-n2-200": {
+                        "text": "Quiebre · 2 particiones · 200 órd/s",
+                        "index": 11
+                      },
+                      "q-n2-220": {
+                        "text": "Quiebre · 2 particiones · 220 órd/s",
+                        "index": 12
+                      },
+                      "q-n2-240": {
+                        "text": "Quiebre · 2 particiones · 240 órd/s",
+                        "index": 13
+                      },
+                      "q-n4-360": {
+                        "text": "Quiebre · 4 particiones · 360 órd/s",
+                        "index": 14
+                      },
+                      "q-n4-400": {
+                        "text": "Quiebre · 4 particiones · 400 órd/s",
+                        "index": 15
+                      },
+                      "q-n4-440": {
+                        "text": "Quiebre · 4 particiones · 440 órd/s",
+                        "index": 16
+                      },
+                      "q-n4-480": {
+                        "text": "Quiebre · 4 particiones · 480 órd/s",
+                        "index": 17
+                      },
+                      "cal-084": {
+                        "text": "Activo caliente · 84 órd/s en UN activo",
+                        "index": 18
+                      },
+                      "cal-100": {
+                        "text": "Activo caliente · 100 órd/s en UN activo",
+                        "index": 19
+                      },
+                      "cal-110": {
+                        "text": "Activo caliente · 110 órd/s en UN activo",
+                        "index": 20
+                      },
+                      "cal-120": {
+                        "text": "Activo caliente · 120 órd/s en UN activo",
+                        "index": 21
+                      },
+                      "bit-off": {
+                        "text": "Bitácora · apagada",
+                        "index": 22
+                      },
+                      "bit-paralelo": {
+                        "text": "Bitácora · en paralelo",
+                        "index": 23
+                      },
+                      "bit-serie": {
+                        "text": "Bitácora · en serie (camino crítico)",
+                        "index": 24
+                      },
+                      "cpu-libre": {
+                        "text": "CPU · sin límite",
+                        "index": 25
+                      },
+                      "cpu-2": {
+                        "text": "CPU · 2 núcleos",
+                        "index": 26
+                      },
+                      "cpu-1": {
+                        "text": "CPU · 1 núcleo",
+                        "index": 27
+                      },
+                      "cpu-05": {
+                        "text": "CPU · medio núcleo",
+                        "index": 28
+                      },
+                      "pre-05": {
+                        "text": "Presupuesto · orden de 5 ms",
+                        "index": 29
+                      },
+                      "pre-10": {
+                        "text": "Presupuesto · orden de 10 ms",
+                        "index": 30
+                      },
+                      "pre-12": {
+                        "text": "Presupuesto · orden de 12 ms",
+                        "index": 31
+                      },
+                      "pre-13": {
+                        "text": "Presupuesto · orden de 13 ms",
+                        "index": 32
+                      },
+                      "pre-15": {
+                        "text": "Presupuesto · orden de 15 ms",
+                        "index": 33
+                      },
+                      "cpre-05": {
+                        "text": "Presupuesto caliente · orden de 5 ms",
+                        "index": 34
+                      },
+                      "cpre-08": {
+                        "text": "Presupuesto caliente · orden de 8 ms",
+                        "index": 35
+                      },
+                      "cpre-09": {
+                        "text": "Presupuesto caliente · orden de 9 ms",
+                        "index": 36
+                      },
+                      "cpre-10": {
+                        "text": "Presupuesto caliente · orden de 10 ms",
+                        "index": 37
+                      },
+                      "forma-lognormal": {
+                        "text": "Forma · lognormal (cola sin tope)",
+                        "index": 38
+                      },
+                      "jfr-f2": {
+                        "text": "Atascos · grabación de la JVM",
+                        "index": 39
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 340
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Costo por orden"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "µs"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Techo que implica"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "reqps"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Núcleos que vio"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          }
+        ]
+      },
+      "id": 27
     }
   ]
 }

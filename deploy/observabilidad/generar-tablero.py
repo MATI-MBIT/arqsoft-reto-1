@@ -99,9 +99,25 @@ def corto(f):
     return f["id"]
 
 
-def objetivo(expr, leyenda="", ref="A", instantaneo=False):
-    return {"datasource": DS, "expr": expr, "legendFormat": leyenda, "refId": ref,
-            "editorMode": "code", "range": not instantaneo, "instant": instantaneo}
+def objetivo(expr, leyenda="", ref="A", instantaneo=False, tabla=False):
+    """Una consulta.
+
+    Con `instantaneo=True` la consulta se evalúa en un solo instante, así que
+    solo ve lo que está reportando AHORA: las corridas ya terminadas no salen.
+    Para una tabla que las lista todas hay que envolver la métrica en
+    `max_over_time(...[$__range])`, que la busca en toda la ventana del tablero.
+
+    `tabla=True` pide a Grafana el formato de TABLA. Sin él, una consulta
+    instantánea vuelve como serie temporal: el encabezado de la columna es el
+    nombre crudo de la serie --{corrida="of-f4-n2", forma="mezcla", ...}-- y los
+    valores quedan apilados en filas sin nombre. Las etiquetas solo se vuelven
+    columnas con este formato.
+    """
+    o = {"datasource": DS, "expr": expr, "legendFormat": leyenda, "refId": ref,
+         "editorMode": "code", "range": not instantaneo, "instant": instantaneo}
+    if tabla:
+        o["format"] = "table"
+    return o
 
 
 # ---------------------------------------------------------------------------
@@ -387,34 +403,61 @@ Por eso el entregable no es una cifra de latencia sino un **presupuesto**: *el d
     # fila cada una, y se filtra con la caja de la propia tabla.
     mapeo = [{"type": "value", "options": {
         f["id"]: {"text": nombre(f), "index": i} for i, f in enumerate(filas)}}]
+    # Solo las corridas del plan. Prometheus guarda tambien series de montajes
+    # manuales anteriores, sin RUN_ID, que aparecian como una fila en blanco.
+    delplan = 'corrida=~"%s"' % "|".join(f["id"] for f in filas)
     procedencia = [
-        {"type": "table", "title": "Con qué corrió cada corrida", "datasource": DS,
-         "description": "Sin esto, dos corridas con resultados distintos son indistinguibles. "
-                        "El techo teórico es 1 ÷ costo por orden: la capacidad que la aritmética "
-                        "predice para una partición.",
-         "gridPos": {"h": 12, "w": 24, "x": 0, "y": y + 1},
-         "targets": [objetivo('max by (corrida, forma, journal, cs2) (engine_info)', "", "A", True),
-                     objetivo('max by (corrida) (engine_operating_point_micros)', "", "B", True),
-                     objetivo('max by (corrida) (engine_ceiling_orders_per_second)', "", "C", True),
-                     objetivo('max by (corrida) (engine_available_processors)', "", "D", True)],
+        {"type": "table", "title": "Con qué configuración corrió cada una", "datasource": DS,
+         "description": "No es la lista de lo que se PIDIÓ: es lo que el motor reportó al arrancar. "
+                        "Existe porque una corrida anunció un costo de 8 ms por orden y arrancó con la "
+                        "lógica de negocio apagada, y nadie lo notó hasta mucho después. Aquí se ve si "
+                        "lo que corrió es lo que se quería correr.\n\n"
+                        "«Techo que implica» es 1 ÷ costo por orden: las órdenes por segundo que la "
+                        "aritmética predice para una partición con ese costo.",
+         "gridPos": {"h": 13, "w": 24, "x": 0, "y": y + 1},
+         "targets": [objetivo('max by (corrida, forma, journal) (max_over_time(engine_info{' + delplan + '}[$__range]))', "", "A", True, tabla=True),
+                     objetivo('max by (corrida) (max_over_time(engine_operating_point_micros{' + delplan + '}[$__range]))', "", "B", True, tabla=True),
+                     objetivo('max by (corrida) (max_over_time(engine_ceiling_orders_per_second{' + delplan + '}[$__range]))', "", "C", True, tabla=True),
+                     objetivo('max by (corrida) (max_over_time(engine_available_processors{' + delplan + '}[$__range]))', "", "D", True, tabla=True)],
          "transformations": [
              {"id": "merge", "options": {}},
              {"id": "organize", "options": {
-                 "excludeByName": {"Time": True, "Value #A": True},
+                 # Cs2 sale del catalogo: vale 3,34 en TODAS las corridas, asi que
+                 # ocupa una columna y no distingue ninguna.
+                 "excludeByName": {"Time": True, "Value #A": True, "cs2": True},
                  "renameByName": {
-                     "corrida": "Corrida", "forma": "Forma del costo por orden",
-                     "cs2": "Variabilidad del costo (Cs²)", "journal": "Bitácora",
-                     "Value #B": "Costo medio por orden (µs)",
-                     "Value #C": "Techo teórico (órdenes/s)",
-                     "Value #D": "CPU que ve la máquina virtual"}}},
+                     "corrida": "Corrida", "forma": "Forma del costo", "journal": "Bitácora",
+                     "Value #B": "Costo por orden", "Value #C": "Techo que implica",
+                     "Value #D": "Núcleos que vio"}}},
              {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "Corrida"}]}}],
          "fieldConfig": {"defaults": {"custom": {"align": "auto", "filterable": True}}, "overrides": [
              {"matcher": {"id": "byName", "options": "Corrida"},
-              "properties": [{"id": "mappings", "value": mapeo}, {"id": "custom.width", "value": 330}]},
-             {"matcher": {"id": "byName", "options": "Techo teórico (órdenes/s)"},
-              "properties": [{"id": "decimals", "value": 0}]}]}},
+              "properties": [{"id": "mappings", "value": mapeo}, {"id": "custom.width", "value": 340}]},
+             {"matcher": {"id": "byName", "options": "Costo por orden"},
+              "properties": [{"id": "unit", "value": "\u00b5s"}, {"id": "decimals", "value": 0},
+                             {"id": "custom.width", "value": 150}]},
+             {"matcher": {"id": "byName", "options": "Techo que implica"},
+              "properties": [{"id": "unit", "value": "reqps"}, {"id": "decimals", "value": 0},
+                             {"id": "custom.width", "value": 170}]},
+             {"matcher": {"id": "byName", "options": "N\u00facleos que vio"},
+              "properties": [{"id": "decimals", "value": 0}, {"id": "custom.width", "value": 150}]}]}},
     ]
-    fila("Procedencia — con qué corrió cada una (desplegar)", True, procedencia)
+    # SIN plegar: una tabla que hay que desplegar no la abre nadie, y esta es
+    # justamente la que dice si las cifras de arriba significan algo.
+    fila("Con qué corrió cada una — la procedencia de todo lo de arriba")
+    P.append(procedencia[0])
+    P[-1]["gridPos"]["y"] = y
+
+    # Identificador estable por panel. Sin el, Grafana no puede renderizar ni
+    # enlazar un panel suelto --hace falta para exportar una grafica como
+    # evidencia-- y el orden del archivo deja de ser reproducible.
+    siguiente = 1
+    for panel in P:
+        panel["id"] = siguiente
+        siguiente += 1
+        for hijo in panel.get("panels", []):
+            hijo["id"] = siguiente
+            siguiente += 1
 
     return {
         "uid": "e01-motor-emparejamiento",

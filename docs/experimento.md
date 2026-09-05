@@ -31,8 +31,9 @@ El diseño se valida contra dos requisitos de calidad críticos (ASR — Archite
 
 ## H1 — El patrón LMAX responde ASR-02
 
-**H1 — Latencia:** si el motor procesa las órdenes una por una, en memoria y sin esperar a nadie —ni base de datos, ni candados, ni otros hilos—, entonces responde a tiempo en operación normal.
-Por qué lo creemos: suena lento, pero es al revés. En los sistemas típicos la demora no está en el trabajo sino en las esperas: turnos por un candado, viajes a la base de datos. Al quitar todas las esperas, procesar una orden cuesta microsegundos
+**H1 — Latencia:** si el motor procesa las órdenes una por una, en memoria y sin esperar a nadie —**ni base de datos, ni candados, ni otros hilos**—, entonces responde a tiempo en operación normal.
+
+La demora no esta en el trabajo en si, sino en las esperas: espera de turnos y  viajes a la base de datos. Al quitar todas las esperas y bloqueos, procesar una orden cuesta microsegundos permitiendo que esta táctica deje de ser un límite.
 
 ```mermaid
 flowchart LR
@@ -45,8 +46,8 @@ flowchart LR
 
 ## H2 — El sharding por símbolo absorbe el pico de 5×
 
-**H2 — Escalabilidad:** si las órdenes se reparten entre varios motores independientes —cada activo pertenece siempre al mismo motor, y una fila de entrada con límite frena los excesos—, entonces el sistema aguanta el pico de mercado (cinco veces la carga normal, hasta 30 minutos) sin dejar de responder a tiempo, siempre que el pico venga repartido entre varios activos.
-Por qué lo creemos: cada motor aporta su propia capacidad; para crecer se agregan motores, no se exprime uno. El experimento debe decir además **cuántos motores bastan** — ese número no se supone, se mide.
+**H2 — Escalabilidad:** si las órdenes se reparten entre varios motores independientes —**cada activo pertenece siempre al mismo motor, y una fila de entrada con límite frena los excesos**—, entonces el sistema aguanta el pico de mercado (cinco veces la carga normal, hasta 30 minutos) sin dejar de responder a tiempo, siempre que el pico venga entre varios activos.
+¿Por qué lo creemos?: cada motor aporta su propia capacidad; para crecer se agregan motores, no se exprime uno. El experimento debe decir además **cuántos motores bastan** — ese número no se supone, se mide.
 
 ```mermaid
 flowchart TB
@@ -61,7 +62,7 @@ Un shard no es dueño de un solo símbolo: hay N shards fijos y cada uno es due�
 ## H2b — La partición caliente: el caso donde el sharding no ayuda
 
 **H2b — Partición caliente** (el caso donde H2 no ayuda): si todo el pico se concentra en un solo activo, el sistema deja de responder a tiempo antes de llegar al pico completo.
-Por qué lo creemos: las órdenes de un activo las atiende siempre el mismo motor — los demás no pueden ayudarle — y un motor solo tiene la fuerza de un núcleo. La Fase 4 no aprueba ni reprueba: pregunta a qué velocidad se rompe.
+¿Por qué lo creemos?: las órdenes de un activo las atiende siempre el mismo motor — los demás no pueden ayudarle — y un motor solo tiene la fuerza de un núcleo y la pregunta es ¿Cuál es el punto de quiebre del motor?.
 
 ```mermaid
 flowchart TB

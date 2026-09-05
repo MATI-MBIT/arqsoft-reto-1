@@ -5,18 +5,18 @@ nav_order: 2
 
 # E01 — ¿Un motor que procesa de a una orden puede ser el más rápido?
 
-Este proyecto construye y prueba el **motor de emparejamiento** de una bolsa de valores: el servicio que recibe órdenes de compra y venta de acciones y decide cuándo dos de ellas coinciden en precio y cierran un trato. El experimento somete un diseño concreto a la carga del reto y responde con evidencia si cumple lo prometido.
+Este proyecto construye y prueba el **motor de emparejamiento** de una bolsa de valores: el servicio que recibe órdenes de compra y venta de acciones y decide cuándo dos de ellas coinciden en precio y cierran un trato. El experimento somete un diseño concreto a la carga del reto y responde con evidencia si cumple o no lo prometido.
 
 ## El sistema, en una imagen
 
-Cada acción (símbolo) tiene su propio **libro de órdenes** en memoria: la lista de compradores y vendedores esperando, ordenada por precio. Las órdenes entran por gRPC a un **router**, que decide qué motor atiende cada símbolo y reenvía la orden ahí.
+Cada acción (símbolo) tiene su propio **libro de órdenes** en memoria: la lista de compradores y vendedores esperando. Las órdenes entran por gRPC a un **router**, que decide qué motor atiende cada símbolo y reenvía la orden ahí.
 
 ```mermaid
 flowchart LR
-    K["Cliente / generador de carga"] -->|gRPC SubmitOrder| R["router de ingesta\nreparte por símbolo · fila con límite"]
-    R --> S0["motor 0\nlibro en memoria, un hilo"]
-    R --> S1["motor 1\nlibro en memoria, un hilo"]
-    S0 --> RTA["Respuesta: emparejada,\nparcial, en espera o rechazada"]
+    K["Cliente / generador de carga"] -->|gRPC SubmitOrder| R["ingest-router\nhash(símbolo) % N + cola acotada"]
+    R --> S0["shard 0\nlibro en memoria, un hilo escritor"]
+    R --> S1["shard 1\nlibro en memoria, un hilo escritor"]
+    S0 --> RTA["Respuesta:\nMATCHED / PARTIALLY_MATCHED / RESTING / REJECTED"]
     S1 --> RTA
 ```
 
@@ -24,27 +24,27 @@ flowchart LR
 
 El diseño se valida contra los dos requisitos de calidad críticos del sistema (ASR):
 
-| ASR | Atributo | Lo que exige |
+| ASR | Atributo | Criterio |
 |---|---|---|
-| ASR-02 | Latencia | responder en menos de 200 ms (el 95 % de las veces) con la carga normal: 1.000 emparejamientos/min |
-| ASR-03 | Escalabilidad transitoria | aguantar un pico de 5× —5.000/min— hasta por 30 minutos, sin dejar de responder a tiempo |
+| ASR-02 | Latencia | p95 ≤ 200 ms a 1.000 emparejamientos/min (carga base) |
+| ASR-03 | Escalabilidad transitoria | rampa de 1.000 a 5.000 emparejamientos/min, sostenida 30 min, p95 ≤ 200 ms |
 
 ## Las tres apuestas
 
-**H1 — Latencia**: si el motor procesa las órdenes una por una, en memoria y sin esperar a nadie —ni base de datos, ni candados, ni otros hilos—, entonces responde a tiempo en operación normal.
+**H1 — Latencia**: si el motor procesa las órdenes una por una, en memoria y sin esperar a nadie **—ni base de datos, ni candados, ni otros hilos—**, entonces responde a tiempo en operación normal.
 La demora no esta en el trabajo en si, sino en las esperas: espera de turnos y  viajes a la base de datos. Al quitar todas las esperas y bloqueos, procesar una orden cuesta microsegundos permitiendo que esta táctica deje de ser un límite.
 
 ```mermaid
 flowchart LR
-    subgraph CC["Camino crítico: todo en memoria, sin candados"]
-      T["hilos gRPC\npublican en paralelo"] --> RB["fila circular\npreasignada"] --> W["único hilo\nprocesa en orden"] --> L["libro en memoria\ncruce por precio y llegada"]
+    subgraph CC["Camino crítico: todo en memoria, sin locks"]
+      T["hilos gRPC\npublican en paralelo"] --> RB["ring buffer\npreasignado"] --> W["único hilo escritor\nprocesa en orden"] --> L["libro en memoria\nmatching precio-tiempo"]
     end
-    L --> Rta["respuesta al cliente"]
-    W -.->|"fuera del camino crítico"| J["registro + notificación"]
+    L --> Rta["respuesta al cliente\np95 ≤ 200 ms"]
+    W -.->|"fuera del camino crítico\n(no implementado en este PoC)"| J["notificación"]
 ```
 
-**H2 — Escalabilidad:** si las órdenes se reparten entre varios motores independientes —cada activo pertenece siempre al mismo motor, y una fila de entrada con límite frena los excesos—, entonces el sistema aguanta el pico de mercado sin dejar de responder a tiempo, siempre que el pico venga distribuido entre varios activos.
-*Por qué lo creemos:* cada motor aporta su propia capacidad; para crecer se agregan motores, no se exprime uno. El experimento debe decir además **cuántos motores bastan** — ese número no se supone, se mide.
+**H2 — Escalabilidad:** si las órdenes se reparten entre varios motores independientes —**cada activo pertenece siempre al mismo motor, y una fila de entrada con límite frena los excesos**—, entonces el sistema aguanta el pico de mercado (cinco veces la carga normal, hasta 30 minutos) sin dejar de responder a tiempo, siempre que el pico venga entre varios activos.
+¿Por qué lo creemos?: cada motor aporta su propia capacidad; para crecer se agregan motores, no se exprime uno. El experimento debe decir además **cuántos motores bastan** — ese número no se supone, se mide.
 
 ```mermaid
 flowchart TB
@@ -57,7 +57,7 @@ flowchart TB
 Un motor no atiende un solo símbolo: hay N motores fijos y cada uno es dueño de *varios* símbolos. La regla que importa es que **un símbolo cae siempre en el mismo motor** — así nadie más toca su libro, jamás.
 
 **H2b — Partición caliente** (el caso donde H2 no ayuda)**:** si todo el pico se concentra en un solo activo, el sistema deja de responder a tiempo antes de llegar al pico completo.
-*Por qué lo creemos:* las órdenes de un activo las atiende siempre el mismo motor —los demás no pueden ayudarle— y un motor solo tiene la fuerza de un núcleo. la hipotesis es **en que punto se degrada el motor**.
+*Por qué lo creemos:* las órdenes de un activo las atiende siempre el mismo motor **—los demás no pueden ayudarle—** y un motor solo tiene la fuerza de un núcleo. la hipotesis es **en que punto se degrada el motor**.
 
 ```mermaid
 flowchart TB

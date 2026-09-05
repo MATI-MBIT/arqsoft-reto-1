@@ -12,6 +12,7 @@ Monorepo del **PoC del experimento E01** (Reto 1, ARTI4109): validar el patrón 
 | Documento | Contenido |
 |---|---|
 | [`docs/experimento.md`](docs/experimento.md) | La apuesta: hipótesis H1/H2/H2b, escenarios vinculados, fases F1–F4, métricas y criterios de éxito |
+| [`docs/diseno-experimento.md`](docs/diseno-experimento.md) | Qué corre `make experimento`: las 40 corridas, su objetivo, su duración y qué hace válida una medición |
 | [`docs/implementacion.md`](docs/implementacion.md) | Cómo funciona el prototipo: viaje de una orden, de la táctica al código, configuración, medición y límites |
 | [`docs/evidencia-corridas.md`](docs/evidencia-corridas.md) | Los resultados, cómo se leen los números, los hallazgos y las salidas crudas |
 | [`docs/construccion-componentes.md`](docs/construccion-componentes.md) | Con qué está construida cada pieza del monorepo y qué decisión hay detrás |

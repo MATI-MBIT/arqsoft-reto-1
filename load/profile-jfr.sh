@@ -37,6 +37,21 @@ verificar_corrida() {
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE="docker compose -f $ROOT/deploy/docker-compose.yml"
+
+# Servicios de la aplicacion. Se reciclan estos y NO la observabilidad: un
+# `down -v` global borraria el historico de Prometheus, que es evidencia de las
+# corridas anteriores. Los volumenes de datos se vacian por nombre.
+APP_SERVICES="matching-shard-0 matching-shard-1 matching-shard-2 matching-shard-3 ingest-router"
+DATA_VOLUMES="journal-0 journal-1 journal-2 journal-3 jfr-0 jfr-1 jfr-2 jfr-3"
+
+reciclar_app() {
+  # shellcheck disable=SC2086
+  $COMPOSE --profile n4 rm -sf $APP_SERVICES >/dev/null 2>&1 || true
+  for v in $DATA_VOLUMES; do
+    docker volume rm -f "arqsoft-reto-1_$v" >/dev/null 2>&1 || true
+  done
+}
+
 FASE="${1:-f2}"
 BIZ="${BIZ_MICROS:-8000}"
 OUT="$ROOT/load/k6/results/jfr-$(date +%Y%m%d-%H%M%S)"
@@ -54,7 +69,7 @@ export JFR_OPTS="-XX:StartFlightRecording=filename=/var/lib/engine/jfr/shard.jfr
 echo "== JFR · fase=$FASE · S=${BIZ}us · N=2 =="
 echo "   salida: $OUT"
 $COMPOSE build
-$COMPOSE --profile n4 down -v --remove-orphans >/dev/null 2>&1 || true
+reciclar_app
 export BIZ_MICROS="$BIZ"
 $COMPOSE up -d >/dev/null
 sleep 20
@@ -66,7 +81,7 @@ declarado="$($COMPOSE logs matching-shard-0 2>/dev/null | grep -m1 'modelo de lo
 echo "  punto de operacion REAL del shard: $declarado"
 if [ "$BIZ" != "0" ] && ! grep -q "media=${BIZ}us" <<<"$declarado"; then
   echo "  ✗ ABORTA: se pidio S=${BIZ}us y el shard arranco con: $declarado"
-  $COMPOSE --profile n4 down -v --remove-orphans >/dev/null 2>&1 || true
+  reciclar_app
   exit 1
 fi
 # El log se captura ANTES de filtrar. Con `set -o pipefail`, un `grep -q` en
@@ -76,21 +91,22 @@ arranque="$($COMPOSE logs matching-shard-0 2>/dev/null || true)"
 if ! grep -q "Started recording" <<<"$arranque"; then
   echo "  ✗ ABORTA: la JVM no inicio la grabacion JFR"
   $COMPOSE logs matching-shard-0 2>/dev/null | grep -i jfr | head -3 | sed 's/^/    /'
-  $COMPOSE --profile n4 down -v --remove-orphans >/dev/null 2>&1 || true
+  reciclar_app
   exit 1
 fi
 
 ( cd "$ROOT/load/k6" && k6 run -e SMOKE=1 -e PHASE="$FASE" -e PEAK=84 poc.js ) 2>&1 | tee "$OUT/k6.txt"
 
 # stop -> SIGTERM -> hook de cierre + volcado de JFR. Debe ir ANTES del down.
-$COMPOSE stop >/dev/null 2>&1 || true
+# shellcheck disable=SC2086
+  $COMPOSE stop $APP_SERVICES >/dev/null 2>&1 || true
 sleep 3
 $COMPOSE logs --no-color 2>/dev/null | grep -E "modelo de logica|runtime:|ACUMULADO|jfr" > "$OUT/shard.log" || true
 
 if ! verificar_corrida "$OUT/k6.txt" "$OUT/shard.log"; then
   echo "  No se analiza la grabacion: la corrida no es valida."
   $COMPOSE logs --no-color 2>/dev/null | grep -iE "error|exception" | head -5 | sed 's/^/    /'
-  $COMPOSE --profile n4 down -v --remove-orphans >/dev/null 2>&1 || true
+  reciclar_app
   exit 1
 fi
 
@@ -99,7 +115,7 @@ for i in 0 1; do
   [ -n "$cid" ] && docker cp "$cid:/var/lib/engine/jfr/shard.jfr" "$OUT/shard-$i.jfr" 2>/dev/null \
     && echo "  grabacion shard-$i: $(du -h "$OUT/shard-$i.jfr" | cut -f1)"
 done
-$COMPOSE --profile n4 down -v --remove-orphans >/dev/null 2>&1 || true
+reciclar_app
 
 for f in "$OUT"/shard-*.jfr; do
   [ -f "$f" ] || continue

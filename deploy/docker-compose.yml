@@ -1,5 +1,8 @@
 # Topología mínima del PoC E01 (una sola máquina, sin Kubernetes ni broker):
 #   k6 → ingest-router (sharding hash(símbolo) % N + cola acotada) → N shards LMAX
+#   ... y la observabilidad que convierte la corrida en evidencia legible:
+#   Prometheus raspa el /metrics de cada servicio y recibe por escritura remota
+#   lo que k6 mide desde afuera; Grafana los cruza en un tablero aprovisionado.
 #
 # N=2 por defecto. Para N=4: docker compose --profile n4 up --build
 # y agregar matching-shard-2/3 a SHARDS del router (ver README).
@@ -161,7 +164,51 @@ services:
       - matching-shard-1
     # cpuset: "6,7"
 
+  # --------------------------------------------------------------------------
+  # Observabilidad. Existe por una razon concreta: el veredicto de una corrida
+  # se decidia leyendo el resumen de texto de k6 y haciendo grep sobre los logs
+  # de los shards. Eso responde "¿paso o no paso?" pero no responde "¿que hizo
+  # el sistema durante los 40 minutos?" -- ni permite ver el momento en que se
+  # degrada, ni contrastar los dos relojes en la misma linea de tiempo.
+  # --------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      # k6 corre en el anfitrion y escribe aqui: sin este receptor, la mitad
+      # externa de la medicion no entra a la misma base de tiempo.
+      - --web.enable-remote-write-receiver
+    volumes:
+      - ./observabilidad/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      # Lectura sin credenciales: la evidencia de un experimento se comparte,
+      # y pedir usuario para verla la vuelve inservible como evidencia.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_DEFAULT_THEME: light
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/e01.json
+    volumes:
+      - ./observabilidad/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observabilidad/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
 volumes:
+  prometheus-data:
+  grafana-data:
   journal-0:
   journal-1:
   journal-2:

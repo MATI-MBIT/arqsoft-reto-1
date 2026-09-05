@@ -1,8 +1,9 @@
 // Generador de carga del PoC E01 — modelo abierto de tasa de llegada
 // (constant/ramping-arrival-rate) para evitar coordinated omission.
 //
-// Fases (env PHASE): f1 = baseline ASR-02 · f2 = rampa+pico+retorno ASR-03 (incluye F3)
-//                    f4 = partición caliente (exploratoria)
+// Fases (env PHASE): f1 = baseline ASR-02 · f2 = rampa+pico ASR-03, con F3 (retorno
+//                    a régimen) como escenario propio · f4 = partición caliente
+// Cada fase arranca con un escenario de calentamiento que NO entra en el criterio.
 // Ejemplos:
 //   k6 run -e PHASE=f1 poc.js
 //   k6 run -e PHASE=f2 -e SHARDS=2 poc.js
@@ -95,56 +96,122 @@ const rejected = new Counter('orders_rejected_backpressure');
 const routingViolations = new Counter('shard_routing_violations');
 const shardBySymbol = {};
 
-function scenarioFor(phase) {
+// ---------------------------------------------------------------------------
+// Escenarios: el precalentamiento es SEPARADO, no un prefijo del escenario medido
+// ---------------------------------------------------------------------------
+// La ficha del experimento declara que "todas arrancan con un precalentamiento
+// que no se mide". Cuando el calentamiento vive dentro del mismo escenario, k6
+// lo mete en grpc_req_duration y el criterio se evalua sobre una JVM que todavia
+// esta compilando: mide el arranque, no el regimen.
+//
+// Por eso cada fase son DOS o TRES escenarios encadenados con startTime, y los
+// umbrales se aplican por escenario (grpc_req_duration{scenario:f1}). El
+// calentamiento aporta trafico y no aporta veredicto.
+//
+// F3 tambien queda como escenario propio. La ficha le pide algo que F2 no puede
+// responder --"la fila se vacia y la latencia VUELVE a la de F1"-- y eso exige
+// percentiles suyos: dentro de F2 quedaban promediados con los del pico.
+const CALENTAMIENTO = SMOKE ? '30s' : '2m';
+
+/** Suma de duraciones tipo '2m' / '30s', para encadenar los startTime. */
+function segundos(...duraciones) {
+  return duraciones.reduce((acc, d) => {
+    const n = Number(d.slice(0, -1));
+    return acc + (d.endsWith('m') ? n * 60 : n);
+  }, 0);
+}
+const seg = (n) => `${n}s`;
+
+function escenariosDe(phase) {
+  const calentamiento = {
+    executor: 'constant-arrival-rate',
+    rate: RATE_A,
+    timeUnit: '1s',
+    duration: CALENTAMIENTO,
+    preAllocatedVUs: PRE_VUS,
+    maxVUs: MAX_VUS,
+  };
+
   if (phase === 'f1') {
     return {
-      executor: 'constant-arrival-rate',
-      rate: RATE_A,
-      timeUnit: '1s',
-      duration: SMOKE ? '1m' : '12m',
-      preAllocatedVUs: PRE_VUS,
-      maxVUs: MAX_VUS,
+      calentamiento,
+      f1: {
+        executor: 'constant-arrival-rate',
+        rate: RATE_A,
+        timeUnit: '1s',
+        duration: SMOKE ? '1m' : '12m',
+        startTime: CALENTAMIENTO,
+        preAllocatedVUs: PRE_VUS,
+        maxVUs: MAX_VUS,
+      },
     };
   }
-  // f2 y f4: precalentamiento → rampa corta (evento de mercado, no crecimiento
-  // gradual) → pico sostenido (ventana ≤ 30 min) → retorno a régimen (F3).
-  return {
+
+  // Rampa del evento de mercado (no crecimiento gradual) + pico sostenido.
+  const rampa = SMOKE ? '30s' : '2m';
+  const pico = SMOKE ? '2m' : '30m';
+  const caida = SMOKE ? '30s' : '1m';
+  const drenaje = SMOKE ? '1m' : '5m';
+
+  const f2 = {
     executor: 'ramping-arrival-rate',
     startRate: RATE_A,
     timeUnit: '1s',
+    startTime: CALENTAMIENTO,
     preAllocatedVUs: Math.max(120, PRE_VUS),
     maxVUs: Math.max(800, MAX_VUS),
-    stages: SMOKE
-      ? [
-          { target: RATE_A, duration: '30s' },
-          { target: RATE_B, duration: '30s' },
-          { target: RATE_B, duration: '2m' },
-          { target: RATE_A, duration: '30s' },
-          { target: RATE_A, duration: '1m' },
-        ]
-      : [
-          { target: RATE_A, duration: '2m' },   // precalentamiento medido aparte
-          { target: RATE_B, duration: '2m' },   // rampa del evento de mercado
-          { target: RATE_B, duration: '30m' },  // pico sostenido (Ambiente B)
-          { target: RATE_A, duration: '1m' },   // caída
-          { target: RATE_A, duration: '5m' },   // F3: retorno a régimen, drenar backlog
-        ],
+    stages: [
+      { target: RATE_B, duration: rampa },
+      { target: RATE_B, duration: pico },
+    ],
+  };
+
+  if (phase === 'f4') {
+    return { calentamiento, f4: f2 };
+  }
+
+  // F3 arranca donde F2 termina: baja al regimen normal y lo sostiene. Sus
+  // percentiles son los que se comparan contra F1 para decir "volvio".
+  return {
+    calentamiento,
+    f2,
+    f3: {
+      executor: 'ramping-arrival-rate',
+      startRate: RATE_B,
+      timeUnit: '1s',
+      startTime: seg(segundos(CALENTAMIENTO, rampa, pico)),
+      preAllocatedVUs: Math.max(120, PRE_VUS),
+      maxVUs: Math.max(800, MAX_VUS),
+      stages: [
+        { target: RATE_A, duration: caida },
+        { target: RATE_A, duration: drenaje },
+      ],
+    },
   };
 }
 
 export const options = {
-  scenarios: { [PHASE]: scenarioFor(PHASE) },
+  scenarios: escenariosDe(PHASE),
   thresholds:
     PHASE === 'f4'
       ? {} // F4 es exploratoria: busca el punto de quiebre, no un aprobado/reprobado
       : {
-          // Criterio de éxito de E01: p95 ≤ 200 ms (p99/p99.9 se observan, no deciden)
-          grpc_req_duration: ['p(95)<200'],
+          // Criterio de exito de E01: p95 <= 200 ms (p99/p99.9 se observan, no deciden).
+          // Va por ESCENARIO: el calentamiento queda fuera del veredicto por
+          // construccion, no por una nota al pie que nadie verifica.
+          [`grpc_req_duration{scenario:${PHASE}}`]: ['p(95)<200'],
+          // F3 responde su propia pregunta: al bajar del pico, ¿vuelve a regimen?
+          ...(PHASE === 'f2'
+            ? { 'grpc_req_duration{scenario:f3}': ['p(95)<200'] }
+            : {}),
+          // Estos tres se exigen sobre la corrida COMPLETA, calentamiento incluido:
+          // un rechazo o una violacion de enrutamiento invalidan la corrida entera,
+          // no solo la ventana medida.
           orders_rejected_backpressure: ['count==0'],
-          // Aislamiento del sharding: cada símbolo, siempre el mismo shard
+          // Aislamiento del sharding: cada simbolo, siempre el mismo shard
           shard_routing_violations: ['count==0'],
-          // k6 descarta una iteración cuando no tiene un VU libre. Eso es carga que
-          // NUNCA se aplicó: la tasa real quedó por debajo de la objetivo y el p95
+          // k6 descarta una iteracion cuando no tiene un VU libre. Eso es carga que
+          // NUNCA se aplico: la tasa real quedo por debajo de la objetivo y el p95
           // resultante subestima al sistema. Exigir 0 impide que el generador se
           // vuelva el cuello de botella sin avisar.
           dropped_iterations: ['count==0'],

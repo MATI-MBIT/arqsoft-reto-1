@@ -22,7 +22,12 @@ flowchart LR
       R -- "gRPC :9090" --> S1["matching-shard-1"]
       R -. "perfil n4" .-> S2["matching-shard-2"]
       R -. "perfil n4" .-> S3["matching-shard-3"]
+      S0 -. "/metrics" .-> P["Prometheus\nraspa cada 10 s"]
+      S1 -. "/metrics" .-> P
+      R  -. "/metrics" .-> P
+      P --> G["Grafana\ntablero E01"]
     end
+    K6 -. "escritura remota" .-> P
 ```
 
 Cada **partición es un proceso** —un contenedor, llamado *shard* aquí y en los nombres de los servicios— con su propio anillo de entrada y su único hilo escritor. Esa igualdad **proceso = partición = escritor** replica en pequeño el patrón del despliegue real. Es también lo que permite probar la escalabilidad agregando particiones, sin tocar una línea de código.
@@ -74,6 +79,7 @@ El router es **sin estado**: no conoce libros ni órdenes. Por eso en el diseño
 | `JournalHandler` | Bitácora de solo-anexado, con volcado a disco una vez por lote (`endOfBatch`) y escritura que no reserva memoria en el camino crítico. Se cablea en paralelo o en serie con el cruce: la diferencia entre esas dos disposiciones **es** la cláusula de H1 sobre mantener el registro fuera del camino crítico. |
 | `OrderBook` | Libro de un activo: `TreeMap<precio, ArrayDeque<Resting>>` para compras (descendente) y ventas (ascendente); cruce por prioridad precio-tiempo, con llenado parcial y remanente en reposo. **No es seguro para concurrencia a propósito** — la exclusión la da el diseño, no los candados. |
 | `BusinessLogicModel` | **Modelo sintético del costo por orden** de la lógica que el prototipo no implementa (validación, riesgo, tipos de orden, comisiones, trades). Quema CPU —no duerme— en el hilo del escritor. Dos perillas: la media y la forma de la distribución. Apagado por defecto. |
+| `PrometheusEndpoint` | Vive en `common-proto` y lo usan los dos servicios: sirve `/metrics` con el servidor HTTP del JDK, sin dependencia nueva. La partición le pasa una cadena **que el hilo del reporte ya dejó armada**, así que raspar las métricas no toca un histograma ni toma un candado: la observación no puede alterar lo observado. |
 | `OrderSlot` | Casilla del anillo: mutable y preasignada, se rellena al publicar y se limpia al final de la cadena, para que en régimen el camino crítico no genere basura. |
 
 ## 5. De la táctica al código
@@ -102,6 +108,7 @@ El router es **sin estado**: no conoce libros ni órdenes. Por eso en el diseño
 | `BIZ_DIST` | motor | `mezcla` | Forma de esa distribución: `mezcla` (tres clases discretas) o `lognormal` (continua, sin cota). Ambas comparten media y varianza, así que compararlas aísla la forma |
 | `JOURNAL` | motor | `off` | Disposición de la bitácora: `off`, `paralelo` (consumidor paralelo del anillo) o `serie` (encadenada antes del cruce) |
 | `JOURNAL_DIR` | motor | `/var/lib/engine/journal` | Directorio del archivo de solo-anexado, montado en un volumen |
+| `METRICS_PORT` | ambos | 8085 / 9095 | Puerto del endpoint `/metrics` que raspa Prometheus |
 | `JFR_OPTS` | motor | vacío | Opciones de Java Flight Recorder. Se **anexan** a `JAVA_OPTS`, no lo reemplazan: sustituirlo apagaría ZGC sin avisar |
 | `SHARD_CPUS` | motor | `0` (sin límite) | Cuota de CPU por partición, en núcleos |
 | `SHARD_CPUSET` | motor | vacío | Núcleos concretos a los que se fija el contenedor |
@@ -112,10 +119,14 @@ El router es **sin estado**: no conoce libros ni órdenes. Por eso en el diseño
 
 **Volúmenes.** Ocho con nombre: `journal-0..3` para las bitácoras y `jfr-0..3` para las grabaciones. La bitácora no puede escribirse en la capa del contenedor, que es un sistema de archivos superpuesto y no representa a un disco.
 
-**Comandos.** El ciclo de vida está en el `Makefile`: `make build`, `make up` / `up-n4` / `up-n1`, `make smoke`, `make f1|f2|f4`, `make experimento`, `make e2e`, `make logs`, `make down`. Las mediciones tienen los suyos: `make sweep-service` (el presupuesto), `sweep-hot`, `sweep-n4`, `compare-sharding`, `compare-cpus`, `compare-journal`, `profile-jfr` y `verify-limits`. Pasar de 2 a 4 particiones no toca código: el perfil `n4` levanta dos contenedores más y `make up-n4` le pasa al router la lista de cuatro.
+**Comandos.** El `Makefile` sigue una regla: un comando existe si produce evidencia que esta documentación cita, o si es parte del ciclo diario. Lo que solo parametriza a otro se pasa como variable — `make f4 PEAK=500`, no un comando por tasa.
+
+El ciclo es `make build`, `make up` / `up-n4`, `make smoke`, `make f1|f2|f4`, `make e2e`, `make tablero`, `make logs`, `make down`. Los cuatro estudios que producen las tablas de la evidencia son `sweep-service` y `sweep-hot` (el presupuesto), `compare-cpus`, `compare-journal` y `profile-jfr`. Y `verify-limits`, que comprueba en el cgroup lo que el YAML solo declara. Pasar de 2 a 4 particiones no toca código: el perfil `n4` levanta dos contenedores más y `make up-n4` le pasa al router la lista de cuatro.
 
 ## 7. Cómo se mide, y por qué la medida es válida
 
+- **El calentamiento no entra en el criterio, y eso es estructura y no una nota al pie.** Cada fase son dos o tres escenarios de k6 encadenados, y el umbral se aplica por escenario: `grpc_req_duration{scenario:f1}`. Una JVM que todavía está compilando aporta tráfico y no aporta veredicto. Medido en una corrida corta, la diferencia no es cosmética: con el calentamiento dentro, el p99.9 daba 125 ms y el máximo 160 ms; el escenario medido solo da 15 ms y 68 ms.
+- **F3 tiene veredicto propio.** La ficha le pide algo que F2 no puede responder —«la fila se vacía y la latencia *vuelve* a la de F1»— y eso exige percentiles suyos. Dentro del escenario de F2 quedaban promediados con los del pico, que es justamente contra lo que hay que compararlos.
 - **Modelo abierto de llegada.** La carga se expresa como tasa objetivo, no como usuarios que esperan respuesta. El modelo cerrado subestima los percentiles bajo saturación, porque cuando el sistema se atasca el generador deja de pedir — el sesgo se conoce como *coordinated omission*.
 - **Arribo irregular, no acompasado.** Los ejecutores de k6 espacian las llegadas de forma uniforme: a 17 por segundo, una cada 58,8 ms exactos. Con varianza de llegada nula la fila no acumula y los percentiles salen optimistas. El generador desplaza cada iteración un tiempo **exponencial** independiente antes de la llamada, lo que converge a un arribo Poisson conservando la tasa. El indicador es Ca², cuánto varían los intervalos entre llegadas: pasa de 0,00 a **0,89**, medido sobre 200.000 llegadas.
 - **Verificación del aislamiento entre particiones.** Cada respuesta trae la partición que la procesó, y k6 comprueba en vivo que un símbolo sea respondido siempre por la misma. El contador de violaciones tiene umbral cero en las fases oficiales.
@@ -123,7 +134,8 @@ El router es **sin estado**: no conoce libros ni órdenes. Por eso en el diseño
 - **El criterio es un umbral ejecutable**, no una lectura posterior: percentil 95 bajo 200 ms hace fallar la corrida en vivo. Los percentiles 99 y 99,9 se registran como observación.
 - **Los rechazos son una métrica de primera clase.** Deben ser cero en las fases oficiales. Y el barrido dejó un hallazgo incómodo: **el sistema se degrada por latencia mucho antes que por rechazo.** Ni siquiera con la partición pedida al 101 % de su capacidad teórica se activó el freno, así que este criterio por sí solo no protege de nada.
 - **Las iteraciones descartadas invalidan la corrida.** k6 descarta una iteración cuando no tiene un cliente libre, y esa es carga que **nunca se aplicó**: el percentil resultante subestima al sistema. Umbral cero en las fases oficiales.
-- **Precalentamiento.** Los primeros minutos estabilizan la compilación y el recolector de basura, y se excluyen del análisis.
+- **Las dos mitades de la medición comparten línea de tiempo.** Prometheus raspa cada diez segundos el `/metrics` de cada partición y del router, y k6 escribe ahí sus propias métricas. El tablero de Grafana cruza ambas: la resta entre el reloj del cliente y el del motor —el costo del transporte— la dibuja un panel en vez de calcularse a mano. La cadencia del raspado es la misma ventana de diez segundos del histograma del motor: raspar más seguido devolvería dos veces la misma cadena, y raspar menos perdería ventanas.
+- **La observabilidad no se recicla entre fases.** El ciclo oficial levanta una topología limpia por fase —requisito de la medición, porque el `ACUMULADO` de una partición solo es de esa fase si el proceso vivió exactamente esa fase— pero Prometheus y Grafana siguen arriba. Si se bajaran con el resto, la serie quedaría partida en cinco pedazos y el tablero dejaría de ser evidencia del ciclo.
 
 ## 8. El parámetro que gobierna todo: cuánto cuesta procesar una orden
 

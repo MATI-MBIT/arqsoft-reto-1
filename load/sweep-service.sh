@@ -53,6 +53,21 @@ k6_metric() {
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE="docker compose -f $ROOT/deploy/docker-compose.yml"
 
+# Servicios de la aplicacion. Se reciclan estos y NO la observabilidad: un
+# `down -v` global borraria el historico de Prometheus, que es evidencia de las
+# corridas anteriores. Los volumenes de datos se vacian por nombre.
+APP_SERVICES="matching-shard-0 matching-shard-1 matching-shard-2 matching-shard-3 ingest-router"
+DATA_VOLUMES="journal-0 journal-1 journal-2 journal-3 jfr-0 jfr-1 jfr-2 jfr-3"
+
+reciclar_app() {
+  # shellcheck disable=SC2086
+  $COMPOSE --profile n4 rm -sf $APP_SERVICES >/dev/null 2>&1 || true
+  for v in $DATA_VOLUMES; do
+    docker volume rm -f "arqsoft-reto-1_$v" >/dev/null 2>&1 || true
+  done
+}
+
+
 PHASE="${PHASE:-f2}"
 PEAK="${PEAK:-84}"
 N="${N:-2}"
@@ -73,7 +88,7 @@ SHARDS_N4="matching-shard-0:9090,matching-shard-1:9090,matching-shard-2:9090,mat
 # proceso vivió exactamente este punto.
 topology_up() {
   local biz="$1"
-  $COMPOSE --profile n4 down --remove-orphans >/dev/null 2>&1 || true
+  reciclar_app
   case "$N" in
     1) BIZ_MICROS="$biz" BIZ_DIST="$DIST" SHARDS="matching-shard-0:9090" $COMPOSE up -d ingest-router matching-shard-0 >/dev/null ;;
     4) BIZ_MICROS="$biz" BIZ_DIST="$DIST" SHARDS="$SHARDS_N4" $COMPOSE --profile n4 up -d >/dev/null ;;
@@ -87,7 +102,8 @@ topology_up() {
 # Se conserva también la línea de provenance: sin ella el punto es ambiguo.
 capture() {
   local log="$1"
-  $COMPOSE stop >/dev/null 2>&1 || true
+  # shellcheck disable=SC2086
+  $COMPOSE stop $APP_SERVICES >/dev/null 2>&1 || true
   $COMPOSE logs --no-color 2>/dev/null \
     | grep -E "modelo de logica|ACUMULADO|shard=[0-9]+ n=" > "$log" || true
 }
@@ -146,7 +162,7 @@ for S in $MICROS; do
   echo "  → k6 p95=${k6p95:-NA} · motor p95=${tp95}us · espera p95=${wp95}us · servicio p50=${sp50}us · shards con datos=${nsh}"
 done
 
-$COMPOSE --profile n4 down --remove-orphans >/dev/null 2>&1 || true
+reciclar_app
 
 echo ""
 echo "════════════ PRESUPUESTO · fase=$PHASE pico=$PEAK N=$N ════════════"

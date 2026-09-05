@@ -41,6 +41,21 @@ verificar_corrida() {
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE="docker compose -f $ROOT/deploy/docker-compose.yml"
+
+# Servicios de la aplicacion. Se reciclan estos y NO la observabilidad: un
+# `down -v` global borraria el historico de Prometheus, que es evidencia de las
+# corridas anteriores. Los volumenes de datos se vacian por nombre.
+APP_SERVICES="matching-shard-0 matching-shard-1 matching-shard-2 matching-shard-3 ingest-router"
+DATA_VOLUMES="journal-0 journal-1 journal-2 journal-3 jfr-0 jfr-1 jfr-2 jfr-3"
+
+reciclar_app() {
+  # shellcheck disable=SC2086
+  $COMPOSE --profile n4 rm -sf $APP_SERVICES >/dev/null 2>&1 || true
+  for v in $DATA_VOLUMES; do
+    docker volume rm -f "arqsoft-reto-1_$v" >/dev/null 2>&1 || true
+  done
+}
+
 CUOTAS="${*:-0 2.0 1.0 0.5}"
 BIZ="${BIZ_MICROS:-8000}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -62,7 +77,7 @@ printf "cpus\tavailProc\tk6_p95_ms\tk6_p99_ms\tmotor_p95_us\tespera_p95_us\tserv
 for Q in $CUOTAS; do
   echo ""
   echo "──────────── cpus=$Q ────────────"
-  $COMPOSE --profile n4 down --remove-orphans >/dev/null 2>&1 || true
+  reciclar_app
   BIZ_MICROS="$BIZ" SHARD_CPUS="$Q" $COMPOSE up -d >/dev/null
   sleep 20
 
@@ -72,7 +87,8 @@ for Q in $CUOTAS; do
 
   ( cd "$ROOT/load/k6" && k6 run -e SMOKE=1 -e PHASE=f2 -e PEAK=84 poc.js ) > "$OUT/q$Q.txt" 2>&1
 
-  $COMPOSE stop >/dev/null 2>&1 || true
+  # shellcheck disable=SC2086
+  $COMPOSE stop $APP_SERVICES >/dev/null 2>&1 || true
   $COMPOSE logs --no-color 2>/dev/null \
     | grep -E "modelo de logica|runtime:|ACUMULADO" > "$OUT/q$Q-shard.log" || true
 
@@ -92,7 +108,7 @@ for Q in $CUOTAS; do
   echo "  → availableProcessors=${ap:-?} · k6 p95=${p95:-NA} · motor p95=${mp95}us · espera p95=${wp95}us"
 done
 
-$COMPOSE --profile n4 down --remove-orphans >/dev/null 2>&1 || true
+reciclar_app
 echo ""
 echo "════════════ CONFINAMIENTO DE CPU ════════════"
 column -t -s$'\t' "$ROWS"

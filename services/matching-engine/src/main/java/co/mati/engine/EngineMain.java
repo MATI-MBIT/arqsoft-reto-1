@@ -1,5 +1,6 @@
 package co.mati.engine;
 
+import co.mati.metrics.PrometheusEndpoint;
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.dsl.Disruptor;
@@ -16,6 +17,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Shard del motor de emparejamiento (experimento E01).
@@ -27,6 +30,7 @@ import java.util.concurrent.TimeUnit;
  *   RING_SIZE  — tamaño del ring buffer, potencia de 2 (default 16384)
  *   BIZ_MICROS — costo medio por orden, en µs, del modelo sintético de lógica
  *                de negocio (0 o ausente = apagado; ver BusinessLogicModel)
+ *   METRICS_PORT — puerto del endpoint /metrics que raspa Prometheus (default 9095)
  */
 public final class EngineMain {
 
@@ -58,6 +62,8 @@ public final class EngineMain {
         Object drainLock = new Object();
 
         BusinessLogicModel businessLogic = BusinessLogicModel.fromEnv(shardId);
+        int metricsPort = Integer.parseInt(env("METRICS_PORT", "9095"));
+        LongAdder rejectedOrders = new LongAdder();
 
         ThreadFactory matcherThreadFactory = r -> {
             Thread t = new Thread(r, "matcher-shard-" + shardId);
@@ -101,7 +107,7 @@ public final class EngineMain {
         disruptor.start();
 
         Server server = ServerBuilder.forPort(port)
-                .addService(new IngestGrpcService(disruptor.getRingBuffer(), shardId))
+                .addService(new IngestGrpcService(disruptor.getRingBuffer(), shardId, rejectedOrders))
                 .build()
                 .start();
 
@@ -119,6 +125,14 @@ public final class EngineMain {
                 Runtime.getRuntime().availableProcessors(),
                 Runtime.getRuntime().maxMemory() / (1024 * 1024));
 
+        // Exposición para Prometheus. La cadena se rearma en el hilo del reporte,
+        // cada 10 s, y el endpoint solo devuelve la última: raspar las métricas no
+        // toca un histograma ni toma un candado, así que no puede alterar la
+        // medición que está observando.
+        AtomicReference<String> exposicion = new AtomicReference<>("# shard iniciando\n");
+        PrometheusEndpoint.start(metricsPort, exposicion::get);
+        log.info("shard={} metricas Prometheus en :{}/metrics", shardId, metricsPort);
+
         // Reporte periódico de percentiles: la contraparte interna de la medición del generador.
         ScheduledExecutorService reporter = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "latency-reporter");
@@ -133,10 +147,14 @@ public final class EngineMain {
                 total = latencyRecorder.getIntervalHistogram();
                 wait = waitRecorder.getIntervalHistogram();
                 service = serviceRecorder.getIntervalHistogram();
+                Histogram journalWindow = journalRecorder.getIntervalHistogram();
                 totalCumulative.add(total);
                 waitCumulative.add(wait);
                 serviceCumulative.add(service);
-                journalCumulative.add(journalRecorder.getIntervalHistogram());
+                journalCumulative.add(journalWindow);
+                exposicion.set(exponer(shardId, ringSize, businessLogic, journalMode,
+                        rejectedOrders.sum(), total, wait, service, journalWindow,
+                        totalCumulative, waitCumulative, serviceCumulative));
             }
             if (total.getTotalCount() == 0) {
                 return;
@@ -211,6 +229,111 @@ public final class EngineMain {
         }));
 
         server.awaitTermination();
+    }
+
+    /**
+     * Texto de exposición de Prometheus para este shard.
+     *
+     * <p>Los nombres de las métricas van en inglés y en minúscula con guiones
+     * bajos porque esa es la convención que Prometheus y Grafana esperan; la
+     * explicación de cada una, en {@code # HELP}, va en el idioma del proyecto.
+     *
+     * <p>Publica tres familias. El <b>punto de operación</b> (S, la forma, el
+     * techo teórico, las CPU que la JVM cree ver) es provenance: sin él, dos
+     * corridas con resultados distintos son indistinguibles. La <b>ventana</b> de
+     * 10 s es la que dibuja la serie de tiempo. El <b>acumulado</b> es el único
+     * comparable cifra a cifra con k6.
+     */
+    private static String exponer(int shardId, int ringSize, BusinessLogicModel businessLogic,
+                                  JournalHandler.Mode journalMode, long rejected,
+                                  Histogram ventanaTotal, Histogram ventanaEspera,
+                                  Histogram ventanaServicio, Histogram ventanaJournal,
+                                  Histogram acumTotal, Histogram acumEspera, Histogram acumServicio) {
+        String shard = "shard=\"" + shardId + "\"";
+        StringBuilder sb = new StringBuilder(4096);
+
+        PrometheusEndpoint.ayuda(sb, "engine_operating_point_micros", "gauge",
+                "Costo medio por orden declarado para la corrida (S), en microsegundos. 0 = logica de negocio apagada.");
+        PrometheusEndpoint.muestra(sb, "engine_operating_point_micros", shard,
+                (long) businessLogic.mediaMicros());
+
+        PrometheusEndpoint.ayuda(sb, "engine_ceiling_orders_per_second", "gauge",
+                "Techo teorico de la particion que implica S: 1/S. 0 cuando la logica esta apagada.");
+        PrometheusEndpoint.muestra(sb, "engine_ceiling_orders_per_second", shard,
+                businessLogic.enabled() ? businessLogic.ceilingOrdersPerSecond() : 0.0);
+
+        PrometheusEndpoint.ayuda(sb, "engine_info", "gauge",
+                "Provenance de la corrida como etiquetas: forma de la distribucion, disposicion del journal, recursos visibles.");
+        PrometheusEndpoint.muestra(sb, "engine_info",
+                shard + ",forma=\"" + businessLogic.forma() + "\""
+                        + ",journal=\"" + journalMode.name().toLowerCase(java.util.Locale.ROOT) + "\""
+                        + ",cs2=\"" + String.format(java.util.Locale.ROOT, "%.2f", businessLogic.cs2()) + "\"",
+                1L);
+
+        PrometheusEndpoint.ayuda(sb, "engine_ring_size", "gauge", "Casillas del ring buffer.");
+        PrometheusEndpoint.muestra(sb, "engine_ring_size", shard, (long) ringSize);
+
+        PrometheusEndpoint.ayuda(sb, "engine_available_processors", "gauge",
+                "CPU que la JVM cree tener. Baja con una cuota de cgroup, y con ella bajan los hilos de ZGC, JIT y gRPC.");
+        PrometheusEndpoint.muestra(sb, "engine_available_processors", shard,
+                (long) Runtime.getRuntime().availableProcessors());
+
+        PrometheusEndpoint.ayuda(sb, "engine_max_heap_bytes", "gauge", "Heap maximo de la JVM.");
+        PrometheusEndpoint.muestra(sb, "engine_max_heap_bytes", shard, Runtime.getRuntime().maxMemory());
+
+        PrometheusEndpoint.ayuda(sb, "engine_orders_total", "counter",
+                "Ordenes materializadas por esta particion desde que arranco. La suma entre shards evidencia el reparto.");
+        PrometheusEndpoint.muestra(sb, "engine_orders_total", shard, acumTotal.getTotalCount());
+
+        PrometheusEndpoint.ayuda(sb, "engine_orders_rejected_total", "counter",
+                "Ordenes rechazadas por ring lleno: la senal de la cola acotada del motor.");
+        PrometheusEndpoint.muestra(sb, "engine_orders_rejected_total", shard, rejected);
+
+        PrometheusEndpoint.ayuda(sb, "engine_business_clamped_total", "counter",
+                "Muestras de servicio recortadas por el tope. Distinto de 0 invalida el Cs2 declarado.");
+        PrometheusEndpoint.muestra(sb, "engine_business_clamped_total", shard,
+                businessLogic.clampedSamples());
+
+        PrometheusEndpoint.ayuda(sb, "engine_window_orders", "gauge",
+                "Ordenes materializadas en la ultima ventana de 10 s.");
+        PrometheusEndpoint.muestra(sb, "engine_window_orders", shard, ventanaTotal.getTotalCount());
+
+        cuantiles(sb, "engine_window_latency_micros", shard, ventanaTotal,
+                "Latencia interna arribo -> materializacion, ventana de 10 s.");
+        cuantiles(sb, "engine_window_wait_micros", shard, ventanaEspera,
+                "Espera en el ring, ventana de 10 s. Es el detector de saturacion: explota cuando rho tiende a 1.");
+        cuantiles(sb, "engine_window_service_micros", shard, ventanaServicio,
+                "Tiempo de servicio (cruce + logica de negocio), ventana de 10 s. No depende de la carga.");
+        if (journalMode != JournalHandler.Mode.OFF) {
+            cuantiles(sb, "engine_window_journal_micros", shard, ventanaJournal,
+                    "Costo de escribir la bitacora, ventana de 10 s.");
+        }
+
+        PrometheusEndpoint.ayuda(sb, "engine_window_latency_max_micros", "gauge",
+                "Peor orden de la ultima ventana. Un solo atasco aqui puede incumplir el SLA por si mismo.");
+        PrometheusEndpoint.muestra(sb, "engine_window_latency_max_micros", shard, ventanaTotal.getMaxValue());
+
+        cuantiles(sb, "engine_total_latency_micros", shard, acumTotal,
+                "Latencia interna acumulada de la corrida. Es la unica comparable cifra a cifra con k6.");
+        cuantiles(sb, "engine_total_wait_micros", shard, acumEspera, "Espera acumulada de la corrida.");
+        cuantiles(sb, "engine_total_service_micros", shard, acumServicio, "Servicio acumulado de la corrida.");
+
+        PrometheusEndpoint.ayuda(sb, "engine_total_latency_max_micros", "gauge",
+                "Peor orden de toda la corrida.");
+        PrometheusEndpoint.muestra(sb, "engine_total_latency_max_micros", shard, acumTotal.getMaxValue());
+
+        return sb.toString();
+    }
+
+    /** Publica los cuatro cuantiles de un histograma bajo un mismo nombre de metrica. */
+    private static void cuantiles(StringBuilder sb, String nombre, String shard,
+                                  Histogram h, String ayuda) {
+        PrometheusEndpoint.ayuda(sb, nombre, "gauge", ayuda);
+        for (int i = 0; i < PrometheusEndpoint.CUANTILES.length; i++) {
+            PrometheusEndpoint.muestra(sb, nombre,
+                    shard + ",quantile=\"" + PrometheusEndpoint.ETIQUETAS_CUANTIL[i] + "\"",
+                    h.getValueAtPercentile(PrometheusEndpoint.CUANTILES[i]));
+        }
     }
 
     private static String env(String name, String defaultValue) {

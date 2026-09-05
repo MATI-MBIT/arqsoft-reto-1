@@ -1,0 +1,32 @@
+# Prometheus del PoC E01. Dos fuentes que hay que leer juntas:
+#
+#   - RASPADO de los servicios: lo que el motor mide POR DENTRO (arribo ->
+#     materializacion, descompuesto en espera y servicio) y lo que el router
+#     mide en la puerta (en vuelo, rechazos, reparto por particion).
+#   - ESCRITURA REMOTA desde k6: lo que un cliente experimenta POR FUERA.
+#
+# La diferencia entre las dos es el costo del transporte, y tenerlas en la misma
+# base de tiempo es lo que permite restarlas en un panel en vez de a mano.
+global:
+  # 10 s, igual que la ventana del histograma del motor: raspar mas seguido
+  # devolveria la misma cadena dos veces, y raspar menos perderia ventanas.
+  scrape_interval: 10s
+  evaluation_interval: 10s
+  external_labels:
+    experimento: e01
+
+scrape_configs:
+  - job_name: motor
+    static_configs:
+      # Las particiones 2 y 3 solo existen con el perfil n4. Cuando no estan,
+      # `up` vale 0 y eso se VE en el tablero: la topologia de la corrida es un
+      # dato del resultado, no una nota al margen.
+      - targets:
+          - matching-shard-0:9095
+          - matching-shard-1:9095
+          - matching-shard-2:9095
+          - matching-shard-3:9095
+
+  - job_name: router
+    static_configs:
+      - targets: ["ingest-router:8085"]

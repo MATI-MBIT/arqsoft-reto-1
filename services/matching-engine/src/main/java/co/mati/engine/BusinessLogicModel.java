@@ -210,6 +210,21 @@ public final class BusinessLogicModel {
         return enabled() ? 1_000_000_000.0 / meanNanos : Double.POSITIVE_INFINITY;
     }
 
+    /** Costo medio por orden declarado, en µs. 0 = apagado. */
+    public double mediaMicros() {
+        return meanNanos / 1_000.0;
+    }
+
+    /** Nombre de la forma de la distribución, para etiquetar la corrida. */
+    public String forma() {
+        return shape.name().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /** Cs² de la distribución: cuánto varía el costo de una orden a otra. */
+    public double cs2() {
+        return CV2;
+    }
+
     /** Muestras recortadas por el tope. Distinto de 0 invalida el Cs² declarado. */
     public long clampedSamples() {
         return clamped;

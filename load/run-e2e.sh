@@ -8,6 +8,11 @@
 #
 # Uso:  ./load/run-e2e.sh full    # corridas oficiales (~1h40m)
 #       ./load/run-e2e.sh smoke   # versión corta (~25 min) — regresión diaria
+#
+# Cada fase escribe además sus métricas a Prometheus, de modo que el tablero de
+# Grafana cubre el ciclo completo en una sola línea de tiempo. La observabilidad
+# NO se recicla entre fases: si se bajara con los demás contenedores, la serie
+# quedaría partida en cinco pedazos y el tablero dejaría de ser evidencia.
 # ==============================================================================
 set -uo pipefail
 
@@ -41,14 +46,26 @@ mkdir -p "$OUT"
 SMOKE_FLAG=""
 [ "$MODE" = "smoke" ] && SMOKE_FLAG="-e SMOKE=1"
 
+# Salida a Prometheus. Va por variables de entorno para que un anfitrion sin
+# Prometheus pueda apagarla con K6_OUT="" sin tocar el script.
+export K6_PROMETHEUS_RW_SERVER_URL="${K6_PROMETHEUS_RW_SERVER_URL:-http://localhost:9090/api/v1/write}"
+export K6_PROMETHEUS_RW_TREND_STATS="${K6_PROMETHEUS_RW_TREND_STATS:-p(50),p(95),p(99),p(99.9),max,avg}"
+export K6_PROMETHEUS_RW_PUSH_INTERVAL="${K6_PROMETHEUS_RW_PUSH_INTERVAL:-5s}"
+K6_OUT="${K6_OUT--o experimental-prometheus-rw}"
+
 FAILED=()
 
 # Topología limpia por fase. Es requisito de la medición, no higiene: el shard
 # publica sus percentiles ACUMULADOS al recibir SIGTERM, y solo son los de ESTA
 # fase si el proceso vivió exactamente esta fase. Además evita que el estado del
 # libro de una fase contamine la siguiente.
+# Servicios de la aplicacion: los unicos que se reciclan. Prometheus y Grafana
+# siguen vivos toda la corrida para no partir la serie de tiempo.
+APP_SERVICES="matching-shard-0 matching-shard-1 matching-shard-2 matching-shard-3 ingest-router"
+
 fresh_topology() {
-  $COMPOSE --profile n4 down --remove-orphans >/dev/null 2>&1 || true
+  # shellcheck disable=SC2086
+  $COMPOSE --profile n4 rm -sf $APP_SERVICES >/dev/null 2>&1 || true
   $COMPOSE up -d >/dev/null
   sleep 20
 }
@@ -60,7 +77,8 @@ fresh_topology() {
 # Los logs se capturan antes del `down`, que destruye los contenedores.
 capture_shard_logs() {
   local name="$1" since="$2"
-  $COMPOSE stop >/dev/null 2>&1 || true
+  # shellcheck disable=SC2086
+  $COMPOSE stop $APP_SERVICES >/dev/null 2>&1 || true
   $COMPOSE logs --no-color --since "$since" 2>/dev/null \
     | grep -E "modelo de logica|runtime:|ACUMULADO|shard=[0-9]+ n=" > "$OUT/$name-shard.log" || true
   grep "ACUMULADO" "$OUT/$name-shard.log" 2>/dev/null | sed 's/^/  /' || true
@@ -77,7 +95,9 @@ run_phase() {
   # fresh_topology hace `down` primero, asi que no se arrastra la fase anterior.
   local since; since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   fresh_topology
-  ( cd "$ROOT/load/k6" && k6 run $SMOKE_FLAG "$@" --summary-export="$OUT/$name.json" poc.js ) 2>&1 | tee "$OUT/$name.txt"
+  # shellcheck disable=SC2086
+  ( cd "$ROOT/load/k6" && k6 run $K6_OUT --tag fase="$name" $SMOKE_FLAG "$@" \
+      --summary-export="$OUT/$name.json" poc.js ) 2>&1 | tee "$OUT/$name.txt"
   local rc=${PIPESTATUS[0]}
   capture_shard_logs "$name" "$since"
   if [ "$rc" -ne 0 ]; then
@@ -94,6 +114,7 @@ fi
   echo "shard_cpus=$SHARD_CPUS"; echo "shard_cpuset=$SHARD_CPUSET"; echo "shard_mem=$SHARD_MEM";
   echo "fecha=$(date -u +%Y-%m-%dT%H:%M:%SZ)";
   echo "k6=$(k6 version 2>/dev/null | head -1)"; echo "commit=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null)";
+  echo "prometheus=${K6_PROMETHEUS_RW_SERVER_URL:-apagado}"; echo "tablero=http://localhost:3000";
 } > "$OUT/manifiesto.txt"
 
 # 1. Construir imágenes una vez; cada fase levanta su propia topología limpia.
@@ -114,13 +135,17 @@ for peak in 250 500 1000; do
   echo "════════════════════════════════════════════════════"
   since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   fresh_topology
-  ( cd "$ROOT/load/k6" && k6 run -e SMOKE=1 -e PHASE=f4 -e PEAK="$peak" \
+  # shellcheck disable=SC2086
+  ( cd "$ROOT/load/k6" && k6 run $K6_OUT --tag fase="f4-explore-$peak" \
+      -e SMOKE=1 -e PHASE=f4 -e PEAK="$peak" \
       --summary-export="$OUT/f4-explore-$peak.json" poc.js ) 2>&1 | tee "$OUT/f4-explore-$peak.txt"
   capture_shard_logs "f4-explore-$peak" "$since"
 done
 
-# 5. Bajar topología
-$COMPOSE down --remove-orphans >/dev/null 2>&1 || true
+# 5. Bajar la aplicacion. La observabilidad queda ARRIBA a proposito: el tablero
+# es parte del entregable y tiene que poder leerse cuando la corrida termina.
+# shellcheck disable=SC2086
+$COMPOSE stop $APP_SERVICES >/dev/null 2>&1 || true
 
 # 6. Resumen
 echo ""
@@ -134,6 +159,7 @@ for f in "$OUT"/*.txt; do
   printf "  %-18s %-16s rechazos=%s descartes=%s\n" "$n" "${p95:-sin dato}" "${rej:-0}" "${drop:-0}"
 done
 echo "  Salidas crudas (.txt) y resúmenes (.json) en: $OUT"
+echo "  Tablero con el ciclo completo: http://localhost:3000 (fuente: Prometheus en :9090)"
 if [ "${#FAILED[@]}" -gt 0 ]; then
   echo "  ✗ FASES OFICIALES CON THRESHOLD INCUMPLIDO: ${FAILED[*]}"
   exit 1

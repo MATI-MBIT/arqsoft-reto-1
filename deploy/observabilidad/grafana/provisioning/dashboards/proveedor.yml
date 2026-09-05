@@ -1,0 +1,14 @@
+# El tablero se carga del disco en cada arranque: vive en el repositorio y se
+# revisa como codigo, no como un JSON exportado a mano desde la interfaz.
+apiVersion: 1
+providers:
+  - name: e01
+    orgId: 1
+    folder: "Experimento E01"
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    updateIntervalSeconds: 10
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

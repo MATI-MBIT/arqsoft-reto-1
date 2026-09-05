@@ -39,6 +39,21 @@ verificar_corrida() {
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE="docker compose -f $ROOT/deploy/docker-compose.yml"
+
+# Servicios de la aplicacion. Se reciclan estos y NO la observabilidad: un
+# `down -v` global borraria el historico de Prometheus, que es evidencia de las
+# corridas anteriores. Los volumenes de datos se vacian por nombre.
+APP_SERVICES="matching-shard-0 matching-shard-1 matching-shard-2 matching-shard-3 ingest-router"
+DATA_VOLUMES="journal-0 journal-1 journal-2 journal-3 jfr-0 jfr-1 jfr-2 jfr-3"
+
+reciclar_app() {
+  # shellcheck disable=SC2086
+  $COMPOSE --profile n4 rm -sf $APP_SERVICES >/dev/null 2>&1 || true
+  for v in $DATA_VOLUMES; do
+    docker volume rm -f "arqsoft-reto-1_$v" >/dev/null 2>&1 || true
+  done
+}
+
 MODOS="${*:-off paralelo serie}"
 BIZ="${BIZ_MICROS:-8000}"
 OUT="$ROOT/load/k6/results/journal-$(date +%Y%m%d-%H%M%S)"
@@ -58,13 +73,14 @@ for M in $MODOS; do
   echo ""
   echo "──────────── journal=$M ────────────"
   # -v: los volumenes del journal deben empezar vacios en cada punto.
-  $COMPOSE --profile n4 down -v --remove-orphans >/dev/null 2>&1 || true
+  reciclar_app
   BIZ_MICROS="$BIZ" JOURNAL="$M" $COMPOSE up -d >/dev/null
   sleep 20
 
   ( cd "$ROOT/load/k6" && k6 run -e SMOKE=1 -e PHASE=f2 -e PEAK=84 poc.js ) > "$OUT/$M.txt" 2>&1
 
-  $COMPOSE stop >/dev/null 2>&1 || true
+  # shellcheck disable=SC2086
+  $COMPOSE stop $APP_SERVICES >/dev/null 2>&1 || true
   $COMPOSE logs --no-color 2>/dev/null \
     | grep -E "modelo de logica|runtime:|journal:|ACUMULADO|JOURNAL shard" > "$OUT/$M-shard.log" || true
 
@@ -87,7 +103,7 @@ for M in $MODOS; do
   echo "  → $(tail -1 "$ROWS" | cut -f1,2,4,5,7,8,9 | tr '\t' ' ')"
 done
 
-$COMPOSE --profile n4 down -v --remove-orphans >/dev/null 2>&1 || true
+reciclar_app
 echo ""
 echo "════════════ JOURNALING ════════════"
 column -t -s$'\t' "$ROWS"

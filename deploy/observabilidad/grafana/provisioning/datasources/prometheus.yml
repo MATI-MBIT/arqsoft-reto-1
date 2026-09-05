@@ -1,0 +1,12 @@
+# Fuente de datos aprovisionada: nadie configura Grafana a mano.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus-e01
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 10s

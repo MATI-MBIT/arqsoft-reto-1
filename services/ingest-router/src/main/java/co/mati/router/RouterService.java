@@ -9,6 +9,7 @@ import io.grpc.stub.StreamObserver;
 import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Router de sharding (D-03): enruta cada orden de forma determinística
@@ -25,14 +26,26 @@ public final class RouterService extends MatchingIngestGrpc.MatchingIngestImplBa
     private final List<MatchingIngestGrpc.MatchingIngestStub> shardStubs;
     private final Semaphore inFlight;
     private final AtomicLong rejectedByBackpressure = new AtomicLong();
+    private final LongAdder received = new LongAdder();
+    /**
+     * Órdenes enviadas a cada partición. Es la evidencia del reparto vista desde
+     * el router: si el conjunto de símbolos desbalancea, se ve aquí antes de que
+     * el desbalance se disfrace de problema de latencia.
+     */
+    private final LongAdder[] routed;
 
     public RouterService(List<MatchingIngestGrpc.MatchingIngestStub> shardStubs, int queueCapacity) {
         this.shardStubs = shardStubs;
         this.inFlight = new Semaphore(queueCapacity);
+        this.routed = new LongAdder[shardStubs.size()];
+        for (int i = 0; i < routed.length; i++) {
+            routed[i] = new LongAdder();
+        }
     }
 
     @Override
     public void submitOrder(OrderRequest request, StreamObserver<OrderResponse> responseObserver) {
+        received.increment();
         if (!inFlight.tryAcquire()) {
             rejectedByBackpressure.incrementAndGet();
             responseObserver.onNext(OrderResponse.newBuilder()
@@ -45,6 +58,7 @@ public final class RouterService extends MatchingIngestGrpc.MatchingIngestImplBa
         }
 
         int shard = Math.floorMod(request.getSymbol().hashCode(), shardStubs.size());
+        routed[shard].increment();
 
         shardStubs.get(shard).submitOrder(request, new StreamObserver<>() {
             @Override
@@ -72,5 +86,17 @@ public final class RouterService extends MatchingIngestGrpc.MatchingIngestImplBa
 
     public int availablePermits() {
         return inFlight.availablePermits();
+    }
+
+    public long receivedCount() {
+        return received.sum();
+    }
+
+    public long routedCount(int shard) {
+        return routed[shard].sum();
+    }
+
+    public int shardCount() {
+        return shardStubs.size();
     }
 }

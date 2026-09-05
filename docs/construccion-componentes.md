@@ -5,7 +5,7 @@ nav_order: 5
 
 # Con qué está construida cada pieza
 
-El prototipo son tres servicios Java, cinco scripts de carga y ocho archivos de configuración. Este documento dice con qué se construyó cada uno y qué decisión hay detrás.
+El prototipo son tres servicios Java, un arnés de carga con cinco scripts y una topología de contenedores con su propia observabilidad. Este documento dice con qué se construyó cada pieza y qué decisión hay detrás.
 
 Hay una decisión que se repite en todas las piezas: **nada que se haga dos veces se hace a mano.** Las versiones viven en un catálogo y no en tres archivos; el código del contrato se genera y no se escribe; cada corrida es un comando; y una corrida que no se pueda verificar no se reporta. El experimento tiene que poder repetirlo alguien más.
 
@@ -21,6 +21,9 @@ flowchart TD
     IR --> DK["Empaquetado y topología\nDocker + Compose"]
     ME --> DK
     DK --> K6["Arnés de carga\nk6 + scripts de medición"]
+    ME -.-> OBS
+    IR -.-> OBS
+    K6 -.-> OBS["Observabilidad\nPrometheus + Grafana"]
 ```
 
 ## 1. El monorepo — un repositorio, tres servicios
@@ -70,6 +73,8 @@ Estas son sus piezas, en el orden en que las recorre una orden.
 
 **La limpieza de la casilla** va encadenada al final, después de todos los consumidores. Tiene que ir ahí: con dos consumidores en paralelo, ninguno de los dos puede modificar el evento mientras el otro lo lee.
 
+**El endpoint de métricas** publica en formato de texto de Prometheus lo que el hilo del reporte ya calculó: los percentiles de la última ventana de diez segundos, los acumulados de la corrida y el punto de operación declarado. Lo sirve el servidor HTTP del propio JDK, sin agregar una dependencia al catálogo. Y devuelve una cadena que otro hilo dejó armada, de modo que **raspar las métricas no puede alterar la medición que está observando**.
+
 **Una decisión que quedó registrada como deuda.** La estrategia con la que el escritor espera cuando no hay trabajo es amable con una máquina compartida entre varios procesos. Hay alternativas que bajan más la latencia, a costa de que ese hilo queme un núcleo entero de forma permanente. Se re-evaluará con datos, no por gusto.
 
 ## 4. El router de ingesta — reparto por símbolo y fila con límite
@@ -96,7 +101,17 @@ La fijación a núcleos concretos solo muerde en un anfitrión Linux: en macOS, 
 
 **Ocho volúmenes con nombre** guardan lo que las corridas producen: uno de bitácora y uno de grabaciones de diagnóstico por cada una de las cuatro particiones. La bitácora no puede escribirse en la capa de escritura del contenedor, que es un sistema de archivos superpuesto y no representa a un disco de verdad.
 
-## 6. El arnés de pruebas de carga
+## 6. La observabilidad
+
+**Qué es.** Prometheus guardando la serie de tiempo y Grafana dibujándola. Existe por una razón concreta: el veredicto de una corrida se decidía leyendo el resumen de texto de k6 y haciendo `grep` sobre los logs. Eso responde *¿pasó o no pasó?*, pero no responde *¿qué hizo el sistema durante los cuarenta minutos?* — ni deja ver el instante en que se degrada.
+
+**La decisión que lo hace útil:** las dos mitades de la medición entran a la **misma base de tiempo**. Prometheus raspa lo que los servicios miden por dentro, y k6 le escribe por remoto lo que un cliente experimenta por fuera. Tenerlas juntas es lo que permite restar los dos relojes en un panel en vez de a mano.
+
+**Aprovisionado desde el repositorio.** La fuente de datos y el tablero se cargan del disco en cada arranque: viven en `deploy/observabilidad/` y se revisan como código. Nadie configura Grafana a mano ni exporta un JSON desde la interfaz. Y se lee sin credenciales, porque pedir usuario para ver una evidencia la vuelve inservible como evidencia.
+
+El tablero se lee de arriba hacia abajo: primero si la corrida cumple —peor p95 por ventana contra los 200 ms, rechazos, iteraciones descartadas, violaciones de enrutamiento— y después por qué. Debajo van la latencia del cliente por escenario, la descomposición interna en espera contra servicio, el reparto entre particiones y la diferencia entre los dos relojes. En la primera fila, junto al veredicto, va el **punto de operación**: ninguna cifra del tablero se lee sin el costo por orden al lado.
+
+## 7. El arnés de pruebas de carga
 
 **Con qué.** k6 como generador, con soporte nativo de gRPC, y cinco scripts de shell que lo orquestan.
 
@@ -112,11 +127,13 @@ La fijación a núcleos concretos solo muerde en un anfitrión Linux: en macOS, 
 
 **El orquestador del ciclo completo** encadena todo: levanta una topología limpia, corre cada fase en orden, apaga, y archiva por corrida tanto la salida cruda como un resumen estructurado. Imprime una tabla final y **termina con código de error si alguna fase oficial incumple su criterio**, así que sirve tal cual como puerta de validación automática.
 
-## 7. La interfaz operativa
+## 8. La interfaz operativa
 
-Todo el ciclo de vida está expuesto como comandos autodocumentados: compilar, levantar cada topología, correr cada fase, buscar el punto de quiebre, comparar configuraciones, verificar que los límites de recursos se aplicaron de verdad y previsualizar la documentación. La convención de fondo es la misma del resto del proyecto: **ningún paso que se repite se ejecuta a mano.** Se vuelve un comando que cualquiera del equipo, o un sistema de integración continua, puede correr igual.
+Todo el ciclo de vida está expuesto como comandos autodocumentados y agrupados por sección: compilar, levantar cada topología, abrir el tablero, correr cada fase, los cuatro estudios que producen las tablas de la evidencia, y verificar que los límites de recursos se aplicaron de verdad.
 
-## 8. El sitio de documentación
+La regla que decide qué entra: **un comando existe si produce evidencia que la documentación cita, o si es parte del ciclo diario.** Lo que solo parametrizaba a otro comando se pasa como variable —`make f4 PEAK=500`, no un comando por cada tasa—, y con ese criterio la lista bajó de treinta a veintitrés. La convención de fondo sigue siendo la misma: **ningún paso que se repite se ejecuta a mano.**
+
+## 9. El sitio de documentación
 
 Jekyll con el tema *just-the-docs*, que trae navegación lateral, búsqueda integrada y renderizado nativo de diagramas Mermaid. GitHub Pages lo publica desde la carpeta `docs/` de la rama principal, sin necesidad de un flujo de trabajo propio: cada cambio que se integre queda publicado. La página de evidencia de corridas es la que el registro del curso enlaza como evidencia externa del experimento.
 
@@ -131,6 +148,7 @@ Jekyll con el tema *just-the-docs*, que trae navegación lateral, búsqueda inte
 | Empaquetado y despliegue | Docker multi-etapa (Temurin 21, ZGC) + Compose con perfiles | Topología de 2 o 4 particiones sin tocar código, con límites verificables |
 | Arnés de carga | k6 ≥ 0.49 + cinco scripts de shell | Las preguntas del experimento como comandos, con veredicto automático |
 | Interfaz operativa | Comandos autodocumentados en el Makefile | Toda operación es reproducible por cualquiera |
+| Observabilidad | Prometheus + Grafana, aprovisionados desde el repositorio | Las dos mitades de la medición en una sola línea de tiempo |
 | Documentación | Jekyll + just-the-docs + Mermaid | Documentación y evidencia publicadas en cada cambio |
 
 ---

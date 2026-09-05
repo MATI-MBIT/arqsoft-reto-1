@@ -9,6 +9,7 @@ import com.lmax.disruptor.RingBuffer;
 import io.grpc.stub.StreamObserver;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Borde gRPC del shard. Publica cada orden en el ring buffer con tryNext():
@@ -19,10 +20,13 @@ public final class IngestGrpcService extends MatchingIngestGrpc.MatchingIngestIm
 
     private final RingBuffer<OrderSlot> ringBuffer;
     private final int shardId;
+    /** Rechazos por ring lleno. LongAdder: lo tocan varios hilos de gRPC y casi nunca. */
+    private final LongAdder rejected;
 
-    public IngestGrpcService(RingBuffer<OrderSlot> ringBuffer, int shardId) {
+    public IngestGrpcService(RingBuffer<OrderSlot> ringBuffer, int shardId, LongAdder rejected) {
         this.ringBuffer = ringBuffer;
         this.shardId = shardId;
+        this.rejected = rejected;
     }
 
     @Override
@@ -34,6 +38,7 @@ public final class IngestGrpcService extends MatchingIngestGrpc.MatchingIngestIm
         try {
             sequence = ringBuffer.tryNext();
         } catch (InsufficientCapacityException backpressure) {
+            rejected.increment();
             responseObserver.onNext(OrderResponse.newBuilder()
                     .setOrderId(request.getOrderId())
                     .setStatus(Status.REJECTED)

@@ -5,7 +5,7 @@ nav_order: 2.5
 
 # El experimento
 
-Este proyecto construye y prueba el motor de emparejamiento de una bolsa de valores: el servicio que recibe órdenes de compra y venta de acciones por gRPC y decide cuándo una orden de compra y una de venta coinciden en precio y cierran un trato. Este documento resume la misma información que la ficha técnica completa —[Experimento E01](experimento-e01.html)— con menos detalle de implementación.
+Este proyecto construye y prueba el motor de emparejamiento de una bolsa de valores: el servicio que recibe órdenes de compra y venta de acciones por gRPC y decide cuándo una orden de compra y una de venta coinciden en precio y cierran un trato. Este documento resume la misma información que la ficha técnica completa —[Experimento E01](experimento-e01.html)— con menos detalle de implementación. 
 
 ## El sistema, en una imagen
 
@@ -31,9 +31,7 @@ El diseño se valida contra dos requisitos de calidad críticos (ASR — Archite
 
 ## H1 — El patrón LMAX responde ASR-02
 
-**H1 — Latencia:** si el motor procesa las órdenes una por una, en memoria y sin esperar a nadie —**ni base de datos, ni candados, ni otros hilos**—, entonces responde a tiempo en operación normal.
-
-La demora no esta en el trabajo en si, sino en las esperas: espera de turnos y  viajes a la base de datos. Al quitar todas las esperas y bloqueos, procesar una orden cuesta microsegundos permitiendo que esta táctica deje de ser un límite.
+**La apuesta:** si el libro de órdenes vive en memoria y un único hilo escritor por partición lo modifica —alimentado por un *ring buffer* (buffer circular preasignado, sin locks) tipo Disruptor, con journaling y notificaciones fuera del camino crítico—, entonces se cumple el criterio de latencia. La razón: procesar en memoria y en secuencia, sin que dos hilos compitan por el mismo dato, elimina la espera que normalmente introduce la sincronización.
 
 ```mermaid
 flowchart LR
@@ -41,13 +39,14 @@ flowchart LR
       T["hilos gRPC\npublican en paralelo"] --> RB["ring buffer\npreasignado"] --> W["único hilo escritor\nprocesa en orden"] --> L["libro en memoria\nmatching precio-tiempo"]
     end
     L --> Rta["respuesta al cliente\np95 ≤ 200 ms"]
-    W -.->|"fuera del camino crítico\n(no implementado en este PoC)"| J["notificación"]
+    W -.->|"fuera del camino crítico\n(no implementado en este PoC)"| J["journaling + notificación"]
 ```
 
 ## H2 — El sharding por símbolo absorbe el pico de 5×
 
-**H2 — Escalabilidad:** si las órdenes se reparten entre varios motores independientes —**cada activo pertenece siempre al mismo motor, y una fila de entrada con límite frena los excesos**—, entonces el sistema aguanta el pico de mercado (cinco veces la carga normal, hasta 30 minutos) sin dejar de responder a tiempo, siempre que el pico venga entre varios activos.
-¿Por qué lo creemos?: cada motor aporta su propia capacidad; para crecer se agregan motores, no se exprime uno. El experimento debe decir además **cuántos motores bastan** — ese número no se supone, se mide.
+**La apuesta:** si el router reparte cada orden con una función determinística —`hash(símbolo) % N`— entre N particiones (shards) independientes, con una cola acotada que amortigua las ráfagas (rechazando en vez de acumular sin límite), entonces se cumple el criterio de escalabilidad mientras la carga se reparta entre varios símbolos. La razón: el throughput total crece agregando particiones, sin que ninguna necesite más de un núcleo.
+
+La pregunta de fondo no era solo si funcionaba con el N elegido, sino **cuál es el N mínimo** que satisface el contrato — un número que no se conocía de antemano.
 
 ```mermaid
 flowchart TB
@@ -61,8 +60,7 @@ Un shard no es dueño de un solo símbolo: hay N shards fijos y cada uno es due�
 
 ## H2b — La partición caliente: el caso donde el sharding no ayuda
 
-**H2b — Partición caliente** (el caso donde H2 no ayuda): si todo el pico se concentra en un solo activo, el sistema deja de responder a tiempo antes de llegar al pico completo.
-¿Por qué lo creemos?: las órdenes de un activo las atiende siempre el mismo motor — los demás no pueden ayudarle — y un motor solo tiene la fuerza de un núcleo y la pregunta es ¿Cuál es el punto de quiebre del motor?.
+**La apuesta exploratoria:** si el pico se concentra al 100 % en un solo símbolo, se espera que el criterio deje de cumplirse antes de llegar al pico contractual, porque el techo de un shard es un solo núcleo por diseño — un libro es indivisible, así que no se puede repartir su carga entre más de un shard. Esta prueba buscaba encontrar ese punto de quiebre real, no dar un aprobado/reprobado.
 
 ```mermaid
 flowchart TB

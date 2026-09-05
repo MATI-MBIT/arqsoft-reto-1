@@ -29,6 +29,12 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 # exporta para que compose lo reciba y queda en el nombre del directorio y en el
 # manifiesto: una corrida cuyo S nadie anotó no es evidencia de nada.
 export BIZ_MICROS="${BIZ_MICROS:-0}"
+# Confinamiento de recursos: 0 = sin limite. Va al manifiesto por la misma razon
+# que BIZ_MICROS -- sin el, una corrida confinada y una libre son
+# indistinguibles en la evidencia.
+export SHARD_CPUS="${SHARD_CPUS:-0}"
+export SHARD_CPUSET="${SHARD_CPUSET:-}"
+export SHARD_MEM="${SHARD_MEM:-0}"
 OUT="$ROOT/load/k6/results/$STAMP-$MODE-S${BIZ_MICROS}us"
 mkdir -p "$OUT"
 
@@ -56,7 +62,7 @@ capture_shard_logs() {
   local name="$1" since="$2"
   $COMPOSE stop >/dev/null 2>&1 || true
   $COMPOSE logs --no-color --since "$since" 2>/dev/null \
-    | grep -E "modelo de logica|ACUMULADO|shard=[0-9]+ n=" > "$OUT/$name-shard.log" || true
+    | grep -E "modelo de logica|runtime:|ACUMULADO|shard=[0-9]+ n=" > "$OUT/$name-shard.log" || true
   grep "ACUMULADO" "$OUT/$name-shard.log" 2>/dev/null | sed 's/^/  /' || true
 }
 
@@ -79,12 +85,14 @@ run_phase() {
   fi
 }
 
-echo "== E2E experimento E01 · modo=$MODE · BIZ_MICROS=${BIZ_MICROS}us · resultados en $OUT =="
+echo "== E2E experimento E01 · modo=$MODE · BIZ_MICROS=${BIZ_MICROS}us · SHARD_CPUS=${SHARD_CPUS} · resultados en $OUT =="
 if [ "$BIZ_MICROS" = "0" ]; then
   echo "   AVISO: lógica de negocio APAGADA — se mide solo el patrón; el p95 de"
   echo "          esta corrida NO es el de un motor con lógica real."
 fi
-{ echo "modo=$MODE"; echo "biz_micros=$BIZ_MICROS"; echo "fecha=$(date -u +%Y-%m-%dT%H:%M:%SZ)";
+{ echo "modo=$MODE"; echo "biz_micros=$BIZ_MICROS"; echo "biz_dist=${BIZ_DIST:-mezcla}";
+  echo "shard_cpus=$SHARD_CPUS"; echo "shard_cpuset=$SHARD_CPUSET"; echo "shard_mem=$SHARD_MEM";
+  echo "fecha=$(date -u +%Y-%m-%dT%H:%M:%SZ)";
   echo "k6=$(k6 version 2>/dev/null | head -1)"; echo "commit=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null)";
 } > "$OUT/manifiesto.txt"
 

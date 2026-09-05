@@ -4,6 +4,14 @@
 # ==============================================================================
 
 COMPOSE      := docker compose -f deploy/docker-compose.yml
+
+# Confinamiento de recursos por shard. 0 = sin limite (el PoC corre sobre 14 vCPU,
+# cosa que ningun despliegue real hace). Se exportan para que Compose los sustituya.
+# Verificar siempre con `make verify-limits`: deploy.resources se ignora fuera de Swarm.
+SHARD_CPUS   ?= 0
+SHARD_CPUSET ?=
+SHARD_MEM    ?= 0
+export SHARD_CPUS SHARD_CPUSET SHARD_MEM
 K6_DIR       := load/k6
 SHARDS_N4    := matching-shard-0:9090,matching-shard-1:9090,matching-shard-2:9090,matching-shard-3:9090
 
@@ -27,12 +35,12 @@ clean: ## Limpia artefactos de Gradle y baja los contenedores (incluye volúmene
 # ---------- Topología (Docker Compose) ---------------------------------------
 
 .PHONY: up
-up: ## Levanta la topología N=2: router :8080 + 2 shards LMAX
+up: ## Levanta la topología N=2: router :8080 + 2 shards LMAX (make up SHARD_CPUS=1.0 para confinar)
 	$(COMPOSE) up --build -d
 	@echo "Router gRPC en localhost:8080 — logs: make logs"
 
 .PHONY: up-n4
-up-n4: ## Levanta la topología N=4: router :8080 + 4 shards LMAX
+up-n4: ## Levanta la topología N=4: router :8080 + 4 shards LMAX (acepta SHARD_CPUS)
 	SHARDS=$(SHARDS_N4) $(COMPOSE) --profile n4 up --build -d
 	@echo "Router gRPC en localhost:8080 con 4 shards — logs: make logs"
 
@@ -111,6 +119,9 @@ docs-serve: ## Previsualiza la documentación Jekyll en http://localhost:4000/ar
 # ---------- Exploración F4 y comparación de sharding --------------------------
 
 PEAK ?= 500
+CUOTAS ?= 0 2.0 1.0 0.5
+MODOS  ?= off paralelo serie
+FASE   ?= f2
 
 .PHONY: f4-peak
 f4-peak: ## F4 exploratoria corta (~5 min) a tasa PEAK/s en un solo símbolo (make f4-peak PEAK=500)
@@ -145,6 +156,27 @@ sweep-hot: ## Presupuesto en el PEOR caso: todo el pico contractual en una sola 
 sweep-n4: ## Mismo barrido con N=4: evidencia de si el presupuesto escala con el numero de shards
 	MICROS="$(SWEEP_MICROS)" PHASE=f2 PEAK=84 N=4 ./load/sweep-service.sh
 
+.PHONY: compare-cpus
+compare-cpus: ## Efecto del confinamiento de CPU: F2 con 0/2/1/0,5 nucleos por particion (make compare-cpus CUOTAS="0 1.0")
+	BIZ_MICROS=$(BIZ_MICROS) ./load/compare-cpus.sh $(CUOTAS)
+
+.PHONY: profile-jfr
+profile-jfr: ## Perfila una fase con Java Flight Recorder y atribuye los atascos (GC, JIT, safepoints)
+	BIZ_MICROS=$(BIZ_MICROS) ./load/profile-jfr.sh $(FASE)
+
+.PHONY: compare-journal
+compare-journal: ## Prueba la clausula de H1: journaling off vs paralelo vs serie (make compare-journal MODOS="off serie")
+	BIZ_MICROS=$(BIZ_MICROS) ./load/compare-journal.sh $(MODOS)
+
+.PHONY: verify-limits
+verify-limits: ## Comprueba EN EL CGROUP que los limites declarados se aplicaron de verdad
+	@echo "declarado: SHARD_CPUS=$(SHARD_CPUS) SHARD_CPUSET='$(SHARD_CPUSET)' SHARD_MEM=$(SHARD_MEM)"
+	@docker inspect $$($(COMPOSE) ps -q matching-shard-0 2>/dev/null) \
+	   --format '  cgroup real -> NanoCpus={{.HostConfig.NanoCpus}} CpusetCpus="{{.HostConfig.CpusetCpus}}" Memory={{.HostConfig.Memory}}' \
+	   2>/dev/null || echo "  (no hay shard levantado: correr make up primero)"
+	@$(COMPOSE) logs matching-shard-0 2>/dev/null | grep -m1 "runtime:" | sed 's/.*EngineMain - /  lo que ve la JVM -> /' \
+	   || echo "  (sin linea runtime: imagen anterior a la instrumentacion)"
+
 .PHONY: compare-sharding
 compare-sharding: ## Compara N=2 vs N=4 con carga repartida a tasa PEAK/s (make compare-sharding PEAK=400)
 	@echo "===== Topología N=2 @ $(PEAK)/s ====="
@@ -165,7 +197,7 @@ compare-sharding: ## Compara N=2 vs N=4 con carga repartida a tasa PEAK/s (make 
 BIZ_MICROS ?= 0
 
 .PHONY: e2e
-e2e: ## Ciclo E2E oficial (~1h40m). Declarar el punto de operacion: make e2e BIZ_MICROS=2000
+e2e: ## Ciclo E2E oficial (~1h40m). Declarar el punto de operacion: make e2e BIZ_MICROS=2000 [SHARD_CPUS=1.0]
 	BIZ_MICROS=$(BIZ_MICROS) ./load/run-e2e.sh full
 
 .PHONY: e2e-smoke

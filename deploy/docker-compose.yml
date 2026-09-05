@@ -26,7 +26,22 @@ services:
       # Forma de la distribucion del costo: mezcla (default) o lognormal.
       # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
       BIZ_DIST: "${BIZ_DIST:-mezcla}"
-    # cpuset: "2"        # ← descomentar en Linux: un núcleo dedicado por shard
+      # Journaling: off | paralelo | serie. Prueba la clausula de H1 sobre
+      # mantenerlo fuera del camino critico (ver JournalHandler).
+      JOURNAL: "${JOURNAL:-off}"
+      JOURNAL_DIR: "/var/lib/engine/journal"
+      # Java Flight Recorder. Vacio = apagado. Se ANEXA a JAVA_OPTS (ver Dockerfile),
+      # asi que no pisa ZGC. Lo enciende `make profile-jfr`.
+      JFR_OPTS: "${JFR_OPTS:-}"
+    volumes:
+      - journal-0:/var/lib/engine/journal
+      - jfr-0:/var/lib/engine/jfr
+    # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
+    # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
+    # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
+    cpus: ${SHARD_CPUS:-0}
+    cpuset: "${SHARD_CPUSET:-}"
+    mem_limit: ${SHARD_MEM:-0}
 
   matching-shard-1:
     build:
@@ -44,7 +59,22 @@ services:
       # Forma de la distribucion del costo: mezcla (default) o lognormal.
       # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
       BIZ_DIST: "${BIZ_DIST:-mezcla}"
-    # cpuset: "3"
+      # Journaling: off | paralelo | serie. Prueba la clausula de H1 sobre
+      # mantenerlo fuera del camino critico (ver JournalHandler).
+      JOURNAL: "${JOURNAL:-off}"
+      JOURNAL_DIR: "/var/lib/engine/journal"
+      # Java Flight Recorder. Vacio = apagado. Se ANEXA a JAVA_OPTS (ver Dockerfile),
+      # asi que no pisa ZGC. Lo enciende `make profile-jfr`.
+      JFR_OPTS: "${JFR_OPTS:-}"
+    volumes:
+      - journal-1:/var/lib/engine/journal
+      - jfr-1:/var/lib/engine/jfr
+    # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
+    # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
+    # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
+    cpus: ${SHARD_CPUS:-0}
+    cpuset: "${SHARD_CPUSET:-}"
+    mem_limit: ${SHARD_MEM:-0}
 
   matching-shard-2:
     profiles: ["n4"]
@@ -63,7 +93,22 @@ services:
       # Forma de la distribucion del costo: mezcla (default) o lognormal.
       # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
       BIZ_DIST: "${BIZ_DIST:-mezcla}"
-    # cpuset: "4"
+      # Journaling: off | paralelo | serie. Prueba la clausula de H1 sobre
+      # mantenerlo fuera del camino critico (ver JournalHandler).
+      JOURNAL: "${JOURNAL:-off}"
+      JOURNAL_DIR: "/var/lib/engine/journal"
+      # Java Flight Recorder. Vacio = apagado. Se ANEXA a JAVA_OPTS (ver Dockerfile),
+      # asi que no pisa ZGC. Lo enciende `make profile-jfr`.
+      JFR_OPTS: "${JFR_OPTS:-}"
+    volumes:
+      - journal-2:/var/lib/engine/journal
+      - jfr-2:/var/lib/engine/jfr
+    # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
+    # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
+    # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
+    cpus: ${SHARD_CPUS:-0}
+    cpuset: "${SHARD_CPUSET:-}"
+    mem_limit: ${SHARD_MEM:-0}
 
   matching-shard-3:
     profiles: ["n4"]
@@ -82,7 +127,22 @@ services:
       # Forma de la distribucion del costo: mezcla (default) o lognormal.
       # Las dos comparten media y Cs2, asi que un A/B entre ellas aisla la FORMA.
       BIZ_DIST: "${BIZ_DIST:-mezcla}"
-    # cpuset: "5"
+      # Journaling: off | paralelo | serie. Prueba la clausula de H1 sobre
+      # mantenerlo fuera del camino critico (ver JournalHandler).
+      JOURNAL: "${JOURNAL:-off}"
+      JOURNAL_DIR: "/var/lib/engine/journal"
+      # Java Flight Recorder. Vacio = apagado. Se ANEXA a JAVA_OPTS (ver Dockerfile),
+      # asi que no pisa ZGC. Lo enciende `make profile-jfr`.
+      JFR_OPTS: "${JFR_OPTS:-}"
+    volumes:
+      - journal-3:/var/lib/engine/journal
+      - jfr-3:/var/lib/engine/jfr
+    # Limites de recursos. Claves de nivel superior a proposito: deploy.resources
+    # se IGNORA en silencio fuera de Swarm, asi que usarla daria una restriccion
+    # que no existe. 0 = sin limite. Verificar siempre con `docker inspect`.
+    cpus: ${SHARD_CPUS:-0}
+    cpuset: "${SHARD_CPUSET:-}"
+    mem_limit: ${SHARD_MEM:-0}
 
   ingest-router:
     build:
@@ -100,3 +160,13 @@ services:
       - matching-shard-0
       - matching-shard-1
     # cpuset: "6,7"
+
+volumes:
+  journal-0:
+  journal-1:
+  journal-2:
+  journal-3:
+  jfr-0:
+  jfr-1:
+  jfr-2:
+  jfr-3:

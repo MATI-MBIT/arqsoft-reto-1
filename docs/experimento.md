@@ -110,4 +110,4 @@ Corre en una sola máquina, sin la red real del banco de pruebas del reto (3 nod
 
 Si F1 y F2 pasan sus criterios, las apuestas H1 y H2 quedan confirmadas y la decisión es **adoptar el patrón**. Si solo falla la partición caliente, la decisión se abre: dividir el libro del símbolo caliente, rebalancear o aceptar un contrato distinto para picos concentrados. Si falla en general, se evalúa un diseño con varios escritores y se compara contra la línea base relacional. En cualquier caso, el experimento debe salir con dos números: **cuántos motores bastan** para el contrato y **cuánto puede costar una orden** sin romperlo.
 
-Con qué: Java 21, Docker Compose, k6 como generador de carga y una máquina de 8+ núcleos. Esfuerzo estimado: 2 personas × 1 semana. Los resultados, cuando existan, viven en la [Evidencia de corridas](evidencia-corridas.html).
+Con qué: Java 21, Docker Compose, Grafana, k6 como generador de carga y una máquina de 8+ núcleos. Esfuerzo estimado: 2 personas × 1 semana. Los resultados, cuando existan, viven en la [Evidencia de corridas](evidencia-corridas.html).

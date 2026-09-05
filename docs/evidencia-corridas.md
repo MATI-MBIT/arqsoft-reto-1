@@ -15,7 +15,7 @@ El contrato son dos requisitos de calidad críticos: **ASR-02**, la latencia en 
 
 > **H1 — Latencia · confirmada.** En operación normal el motor responde en **31,09 ms**: 6,4 veces por debajo del presupuesto. Y su cláusula también se sostiene — registrar cada orden en paralelo cuesta **+0,9 %** de la mediana; ponerlo en el camino crítico cuesta **+19 %**.
 >
-> **H2 — Escalabilidad · confirmada, y con una ley.** El punto de quiebre escala casi exacto con las particiones: **92 · 181 · 360 órdenes por segundo** para 1, 2 y 4. El pico contractual son 84, así que **una sola partición basta** — dos son margen, no necesidad.
+> **H2 — Escalabilidad · confirmada, y con una ley.** Media hora de pico sostenido a cinco veces la carga normal: **77,68 ms**, y al bajar la latencia vuelve a la de régimen con 0,08 ms de diferencia. Y el punto de quiebre escala casi exacto con las particiones: **92 · 181 · 360 órdenes por segundo** para 1, 2 y 4. El pico contractual son 84, así que **una sola partición basta** — dos son margen, no necesidad.
 >
 > **H2b — Partición caliente · refutada.** Predecía que el motor se caería antes de llegar al pico completo concentrado en un solo activo. No se cae: **155,39 ms**, con 1,3× de margen.
 >
@@ -103,11 +103,26 @@ H1 incluye una condición que suele ser la primera en romperse — el registro d
 
 ASR-03 pide subir de la carga normal al pico de cinco veces, sostenerlo treinta minutos y seguir respondiendo a tiempo. La ficha agrega una condición que el requisito da por hecha: que al bajar, **la fila se vacíe y la latencia vuelva** a la de operación normal. El pico exigido es transitorio, no permanente.
 
-*La fase contractual completa —treinta minutos de pico sostenido más el retorno a régimen— se está midiendo en este momento. Sus cifras entran aquí al cerrar. Lo que ya está medido del mismo punto de operación son cuatro sondas independientes a 84 órdenes por segundo sobre dos particiones: **86,22 · 86,42 · 87,00 · 87,07 ms**.*
+**Aguanta con 2,6 veces de margen, y vuelve.**
+
+| | Órdenes | p50 | **p95** | p99 | p99.9 | máx |
+|---|---|---|---|---|---|---|
+| **F2 · pico 5×**, 30 min sostenidos | 167.429 | 5,54 ms | **77,68 ms** | 140,98 ms | 229,63 ms | 523,28 ms |
+| **F3 · retorno**, de vuelta a 17 órd/s | | 7,01 ms | **31,01 ms** | 135,40 ms | 143,65 ms | 164,32 ms |
+| **Motor** · espera | | 0,03 ms | **49,66 ms** | | 212,48 ms | 503,04 ms |
+| **Motor** · servicio | | 4,60 ms | **27,60 ms** | | 137,98 ms | 138,50 ms |
+
+Cero órdenes perdidas por el generador, cero rechazos y cero errores de reparto en los 39 minutos. Las dos particiones se llevaron 83.795 y 83.634 órdenes —un 50,05 / 49,95 %— y la suma da 167.429, exactamente lo que contó el generador.
+
+> **F3 responde la cláusula: 31,01 ms contra los 31,09 ms de F1.** La latencia vuelve con una diferencia de 0,08 ms, la mitad del ruido del banco. La fila del pico se drena y no deja huella.
+
+Esa comparación era imposible hasta este ciclo. El retorno vivía dentro de la misma ventana que el pico, así que sus percentiles quedaban promediados con los que había que superar. Ahora es un escenario aparte, con su propio umbral.
+
+**Y aquí aparece por primera vez el sesgo del perfil corto.** Cuatro sondas de cuatro minutos y medio, al mismo punto de operación, dieron **86,22 · 86,42 · 87,00 · 87,07 ms**: un 12 % por encima de los 77,68 de la fase larga. La sonda llega al pico en 30 segundos y la fase contractual se toma dos minutos, así que mide la rampa tanto como el régimen. Sobrestima siempre en la misma dirección, y eso la vuelve útil para ubicar el quiebre y peligrosa para dictar el veredicto.
 
 ### ¿Cuántas particiones bastan?
 
-**Una.** La misma carga de 84 órdenes por segundo, primero sobre una partición, después sobre dos y sobre cuatro:
+**Una.** La misma carga de 84 órdenes por segundo, primero sobre una partición, después sobre dos y sobre cuatro. Son sondas cortas, así que las tres cargan el mismo sesgo hacia arriba y la comparación entre ellas es limpia:
 
 | Particiones | **p95 del cliente** | espera p95 | servicio p95 | |
 |---|---|---|---|---|
@@ -197,7 +212,7 @@ Las dos aterrizan a 11 ms de distancia porque están haciendo exactamente lo mis
 
 **Dónde sí se cae.** Subiendo la tasa sobre el activo caliente, la latencia se dispara igual de rápido que en el caso N=1: **604 ms a 100 órdenes por segundo**, 625 a 110 y 772 a 120. El quiebre queda justo encima del pico contractual, donde la ley de H2 lo pone.
 
-La sonda corta a 84 no se puede usar para ubicarlo: perdió 131 órdenes, lo que baja su cifra a un p94,0, y además marcó 341 ms donde la fase larga marcó 155. La culpable es la rampa —la sonda llega al pico en 30 segundos y la fase contractual se toma dos minutos—, y por eso el veredicto lo dicta la fase larga.
+La sonda corta a 84 no se puede usar para ubicarlo: perdió 131 órdenes, lo que baja su cifra a un p94,0, y además marcó 341 ms donde la fase larga marcó 155. La culpable es la rampa: la sonda llega al pico en 30 segundos y la fase contractual se toma dos minutos. Por eso el veredicto lo dicta la fase larga.
 
 ## El entregable: cuánto puede costar una orden
 
@@ -238,7 +253,7 @@ Este es el número verificable, el que no depende del supuesto de los 8 ms. Se b
 servicio p50=4603us  p95=27599us  p99.9=137983us
 ```
 
-Tres puntos de la distribución declarada, reproducidos dentro de la resolución del histograma. **Y ese `servicio p95` sale en 27,60 ms en veintisiete de las treinta corridas que declararon 8 ms**, sin importar cuántas particiones ni cuánta carga. Solo se mueve en tres, y las tres se explican solas: con media CPU por partición sube a 89 ms, y en las dos corridas que ahogaron la máquina —cuatro particiones más novecientos clientes sobre 14 núcleos— a 32.
+Tres puntos de la distribución declarada, reproducidos dentro de la resolución del histograma. **Y ese `servicio p95` sale en 27,60 ms en veintiocho de las treinta y una corridas que declararon 8 ms**, sin importar cuántas particiones ni cuánta carga. Solo se mueve en tres, y las tres se explican solas: con media CPU por partición sube a 89 ms, y en las dos corridas que ahogaron la máquina —cuatro particiones más novecientos clientes sobre 14 núcleos— a 32.
 
 Es la prueba de que las diferencias que esta página reporta vienen de la cola, no de un banco que se movió por debajo.
 
@@ -250,8 +265,13 @@ Es la prueba de que las diferencias que esta página reporta vienen de la cola, 
 
 Un rango de 0,85 ms sobre una media de 86,68: **±0,5 %**. De ahí sale la regla de lectura: una diferencia del orden del 1 % no es señal. El +55 % del confinamiento a un núcleo y el +19 % de la bitácora en serie sí lo son, por dos órdenes de magnitud.
 
-![Órdenes procesadas en cada corrida](imagenes/panorama.png)
+![Las cuarenta corridas de la sesión, cada una su propia rampa](imagenes/panorama.png)
+
+Esa figura es la sesión entera: cuarenta rampas, cada una una corrida. La meseta plana de las 09:15 es la única anomalía del día: la máquina se suspendió 27 minutos en mitad del pico oficial. Esa corrida se retiró y se volvió a medir de cero a las 13:27 — la rampa larga de la derecha, la que dicta el veredicto de ASR-03.
+
 ![Esperando en fila contra trabajando](imagenes/espera-servicio.png)
+
+**Las cifras del tablero y las de esta página no son la misma cuenta.** El tablero solo puede leer lo que el generador publica cada cinco segundos: percentiles de ventana. Tomar un percentil de percentiles corre unos puntos por encima del agregado: 86 contra 77,68 ms en la fase del pico. Una ventana de cinco segundos mide cuatrocientas órdenes; la fase completa mide ciento sesenta y siete mil. **El tablero sirve para ver la corrida mientras pasa; el veredicto lo dicta el resumen que el generador emite al cerrar**, y es el que está en las tablas de arriba.
 
 **Y el reparto nunca falló.** Cero violaciones de reparto, cero órdenes rechazadas y cero respuestas con error: cada símbolo lo respondió siempre la misma partición. También en las doce corridas que empujaron al motor más allá de su techo y le perdieron órdenes al generador.
 
@@ -296,7 +316,7 @@ Es atribución por eliminación, no medición directa. Confirmarlo exige instrum
 - **La latencia por encima del quiebre no está medida.** Pasado el techo el generador deja de emitir órdenes, y lo que descarta son las de los peores momentos: el p95 que reporta es en realidad un p79 o un p69. Esas corridas sirven para leer dónde está el quiebre, nunca cuánto se degrada después.
 - **El freno de entrada sigue sin probarse.** Ni el anillo del motor ni la fila del router se acercaron a su límite en ninguna corrida — ni siquiera en las que perdieron veinte mil órdenes. Que no se hayan activado no dice nada sobre si protegen.
 - **Los atascos del anfitrión están atribuidos por eliminación**, no medidos.
-- **El perfil corto sobrestima cuando la rampa es abrupta.** La sonda de cuatro minutos y medio llega al pico en 30 segundos; la fase contractual se toma dos minutos. En la partición caliente esa diferencia dio 341 ms contra 155 ms **con la misma configuración**. Las sondas cortas ubican el quiebre; las fases largas dictan el veredicto.
+- **El perfil corto sobrestima, y siempre hacia arriba.** La sonda de cuatro minutos y medio llega al pico en 30 segundos; la fase contractual se toma dos minutos, así que la sonda mide la rampa tanto como el régimen. Con el pico repartido el sesgo es del **12 %** (86,7 contra 77,68 ms); con la partición caliente, del **120 %** (341 contra 155 ms). Las sondas cortas ubican el quiebre; las fases largas dictan el veredicto.
 
 ## Cómo repetir todo esto
 

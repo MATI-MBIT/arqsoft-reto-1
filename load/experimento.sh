@@ -35,6 +35,10 @@ export K6_PROMETHEUS_RW_TREND_STATS="${K6_PROMETHEUS_RW_TREND_STATS:-p(50),p(95)
 export K6_PROMETHEUS_RW_PUSH_INTERVAL="${K6_PROMETHEUS_RW_PUSH_INTERVAL:-5s}"
 K6_OUT="${K6_OUT--o experimental-prometheus-rw}"
 
+# Percentil efectivo minimo para publicar una latencia como si fuera un p95.
+# Por debajo, la cifra ya no describe al percentil que dice describir.
+PISO_PERCENTIL="${PISO_PERCENTIL:-94}"
+
 RESULTADOS="$OUT/resultados.tsv"
 [ -f "$RESULTADOS" ] || printf "id\thipotesis\tgrupo\tfase\tn\tvars\tcriterio\tk6_p95_ms\tk6_p99_ms\tk6_p999_ms\tmotor_p95_us\tespera_p95_us\tserv_p50_us\ttasa_lograda\tordenes\trechazos\tdescartes\tveredicto\tlatencia_valida\n" > "$RESULTADOS"
 
@@ -189,12 +193,20 @@ registrar() {
     } END { printf "%d %d %d", m, e, s }' "$log")"
 
   # DOS juicios distintos, y confundirlos fue un error real de este proyecto:
-  #  - latencia_valida: ¿la cifra mide el sistema? Con descartes > 0 el generador
-  #    se quedo sin clientes, el modelo abierto degenera en cerrado y la latencia
-  #    pasa a ser (clientes / throughput) -- mide el generador, no el motor.
-  #  - veredicto: ¿cumple el criterio? Solo tiene sentido si la latencia es valida.
-  local valida="si"
-  [ "${descartes:-0}" != "0" ] && valida="no"
+  #  - latencia_valida: la cifra mide el sistema, o mide al generador?
+  #  - veredicto: cumple el criterio? Solo tiene sentido si la latencia es valida.
+  #
+  # La regla NO es binaria. Cuando el generador descarta iteraciones pierde las
+  # de los peores momentos, asi que el p95 de lo observado corresponde en verdad
+  # al percentil 95 x observadas / intentadas. Con 26 descartes sobre 56.039 eso
+  # da p94,96 -- indistinguible de un p95. Con 20.054 sobre 74.039 da p69,3, que
+  # es otra cosa. Tratarlos igual escondia el mejor punto de un barrido.
+  local valida="si" pef="95.0"
+  local intentadas=$(( ${ordenes:-0} + ${descartes:-0} ))
+  if [ "$intentadas" -gt 0 ]; then
+    pef="$(echo "scale=2; 95 * ${ordenes:-0} / $intentadas" | bc -l)"
+    [ "$(echo "$pef < $PISO_PERCENTIL" | bc -l)" = "1" ] && valida="no"
+  fi
   corrida_valida "$k6" "$log" || valida="no"
 
   local veredicto="observa"
@@ -211,7 +223,7 @@ registrar() {
 
   printf "  → p95=%s ms · motor=%s us · espera=%s us · tasa=%s · descartes=%s · %s\n" \
     "${p95:--}" "$mp95" "$ep95" "${tasa:--}" "${descartes:-0}" "$veredicto"
-  [ "$valida" = "no" ] && echo "  ⚠ latencia NO publicable (el generador se quedó sin clientes: mide su pool, no el motor)"
+  [ "$valida" = "no" ] && echo "  ⚠ latencia NO publicable: el p95 reportado es en realidad un p${pef} (el generador no logró emitir ${descartes:-0} órdenes)"
 }
 
 perfilar_jfr() {

@@ -5,13 +5,31 @@ nav_order: 4
 
 # Lo que midieron las cuarenta corridas
 
-Una partición de este motor deja de responder a tiempo cuando le llegan **73 de cada 100 órdenes que aritméticamente podría procesar**. No al 95 %, no al 100 %: al 73 %. Ese número decide cuántas particiones hacen falta, explica por qué duele un activo caliente y por qué repartir la carga entre dos motores no compra el doble de margen.
+Las cuarenta corridas del [diseño del experimento](diseno-experimento.html) se
+lanzaron con un solo comando el **5 de septiembre de 2026**, todas sobre la
+misma máquina y el mismo binario. Esta página cuenta lo que respondieron.
 
-Las cuarenta corridas salieron de un solo comando el 5 de septiembre de 2026, sobre la misma máquina y el mismo binario. El [diseño del experimento](diseno-experimento.html) explica qué pregunta responde cada una; esta página trae lo que contestaron.
+**El resultado en corto:** el motor cumple los dos requisitos de calidad
+críticos con holgura —unas seis veces por debajo del límite en operación normal,
+dos veces y media por debajo en el pico de media hora— y lo sigue cumpliendo
+aun cuando todo el tráfico se concentra en un solo activo, que era el escenario
+más temido. De las tres apuestas de diseño, dos se confirmaron y una (**H2b**)
+se **refutó porque el fallo que predecía no llegó a ocurrir**.
+
+Pero el número que conviene llevarse **no es ninguno de esos percentiles**.
+Todos dependen de un supuesto —que procesar una orden cuesta 8 ms—, porque el
+prototipo todavía no implementa la lógica de negocio real. El dato que sí se
+sostiene por sí solo es **cuánto puede llegar a costar una orden antes de romper
+el contrato: 12,4 ms** si la carga se reparte entre dos particiones, **8,4 ms**
+si cae toda sobre una.
+
+Lo que sigue desarrolla cada una de esas afirmaciones, de la más general a la
+más fina. Empieza por el veredicto, sigue con un recordatorio de cómo se leen
+las tablas, y luego recorre hipótesis por hipótesis.
 
 ## El veredicto, primero
 
-El contrato son dos requisitos de calidad críticos: **ASR-02**, la latencia en operación normal, y **ASR-03**, aguantar un pico de cinco veces esa carga durante media hora. Los dos piden lo mismo: que **95 de cada 100 órdenes** salgan en menos de 200 ms.
+El contrato son dos requisitos de calidad críticos: **ASR-02**, la latencia en operación normal, y **ASR-03**, aguantar un pico de cinco veces esa carga durante media hora. Los dos piden lo mismo: que **95 de cada 100 órdenes** salgan en menos de 200 ms. Abajo, el resultado de cada apuesta de diseño contra ese criterio.
 
 > **H1 — Latencia · confirmada.** En operación normal el motor responde en **31,09 ms**: 6,4 veces por debajo del presupuesto. Y su cláusula también se sostiene — registrar cada orden en paralelo cuesta **+0,9 %** de la mediana; ponerlo en el camino crítico cuesta **+19 %**.
 >
@@ -21,7 +39,7 @@ El contrato son dos requisitos de calidad críticos: **ASR-02**, la latencia en 
 >
 > Cero órdenes rechazadas, cero errores de reparto y cero fallos de protocolo en las 40 corridas.
 
-Pero el número que conviene llevarse **no es ninguno de esos percentiles**, porque todos cuelgan de un supuesto:
+Todos esos percentiles cuelgan del mismo supuesto —8 ms por orden—. El dato que no:
 
 > **El presupuesto: una orden puede costar hasta 12,4 ms** con el pico repartido entre dos particiones, y **8,4 ms** si todo cae en una sola.
 
@@ -29,9 +47,12 @@ El prototipo no implementa la lógica de negocio real —validar, verificar ries
 
 ## Cómo se leen estas cifras
 
-**Dos relojes miden lo mismo desde extremos distintos.** El generador cronometra la llamada completa, como la ve un cliente. El motor cronometra desde que la orden le llega hasta que queda resuelta. La diferencia entre ambos es el costo del transporte y del router: entre 1 y 8 ms en todas las corridas. Es un orden de magnitud, no una cifra exacta — restar percentiles de dos poblaciones distintas nunca da una resta limpia.
+Todas las tablas de abajo hablan de latencia con los mismos cuatro términos.
+Vale la pena fijarlos antes de seguir.
 
-**Y el reloj de adentro se parte en dos.** La **espera** es lo que la orden hizo fila antes de que el escritor la tomara; el **servicio** es lo que costó procesarla. Saber cuál de los dos creció distingue *«hay que agregar particiones»* de *«hay que abaratar la orden»*, y esa distinción es la que ordena toda esta página.
+**Dos relojes miden lo mismo desde extremos distintos.** El generador de carga cronometra la llamada completa, como la ve un cliente. El motor cronometra desde que la orden le llega hasta que queda resuelta. La diferencia entre ambos es el costo del transporte y del componente que reparte: entre 1 y 8 ms en todas las corridas. Es un orden de magnitud, no una cifra exacta — restar percentiles de dos poblaciones distintas nunca da una resta limpia.
+
+**Y el reloj de adentro se parte en dos.** La **espera** es lo que la orden hizo fila antes de que el motor la tomara; el **servicio** es lo que costó procesarla una vez tomada. Saber cuál de los dos creció distingue *«hay que agregar particiones»* de *«hay que abaratar la orden»*, y esa distinción es la que ordena toda esta página.
 
 Una línea de las que el motor publica al cerrar, descifrada:
 
@@ -138,7 +159,7 @@ Ese par de columnas es el hallazgo entero de H2 en dos cifras. Repartir la carga
 
 ### El punto de quiebre, y la ley que sale de él
 
-Con el pico contractual todo pasa, así que la pregunta útil es otra: **¿a qué tasa deja de pasar?** Se subió la carga hasta cruzar los 200 ms, en las tres topologías.
+Con el pico contractual todo pasa, así que la pregunta útil es otra: **¿a qué tasa deja de pasar?** Se subió la carga hasta cruzar los 200 ms, en las tres topologías. El valor donde eso ocurre es el *punto de quiebre*.
 
 | Con 1 partición | p95 | | Con 2 | p95 | | Con 4 | p95 | |
 |---|---|---|---|---|---|---|---|---|
@@ -162,11 +183,11 @@ Interpolando entre el último que pasa y el primero que falla:
 
 > **El quiebre escala con las particiones: 1,97× al duplicarlas y 3,91× al cuadruplicarlas.** H2 apostaba a que cada motor aporta su propia capacidad, y eso es lo que muestra la primera columna.
 
-**Pero la tercera columna es el hallazgo.** El techo aritmético de una partición es `1 ÷ costo por orden` = 125 órdenes por segundo con S = 8 ms. Las tres topologías se quiebran cerca del **73 % de ese techo**, no del 100 %. La capacidad restante no se pierde: se gasta en cola. Cuando la ocupación pasa de tres cuartos, la fila crece más rápido de lo que el percentil 95 tolera, y ningún ajuste de configuración lo compensa.
+**Pero la tercera columna es el hallazgo.** El *techo aritmético* de una partición es cuántas órdenes por segundo cabrían si no hubiera cola ni pausa alguna: `1 ÷ costo por orden`, o sea 125 órdenes por segundo cuando cada una cuesta 8 ms. Las tres topologías se quiebran cerca del **73 % de ese techo**, no del 100 %. La capacidad que falta no se pierde: se gasta en cola. Cuando la *ocupación* —la fracción del techo que se está usando— pasa de tres cuartos, la fila crece más rápido de lo que el percentil 95 tolera, y ningún ajuste de configuración lo compensa.
 
 Eso convierte la pregunta de diseño en una cuenta: **particiones = tasa objetivo ÷ (0,73 ÷ costo por orden)**. Con 84 órdenes por segundo y 8 ms por orden, da 0,92 — una partición, redondeando hacia arriba.
 
-*Ese 73 % está atado a estos 8 ms. El límite de 200 ms es absoluto y el eje de tiempo entero escala con el costo por orden, así que con otro `S` el porcentaje se mueve. Lo que no se mueve es el hecho de que el quiebre llega bastante antes del techo.*
+*Ese 73 % está atado a estos 8 ms por orden. El límite de 200 ms es absoluto y el eje de tiempo entero escala con el costo por orden, así que con otro costo el porcentaje se mueve. Lo que no se mueve es el hecho de que el quiebre llega bastante antes del techo.*
 
 ### ¿Cabe una partición en un núcleo?
 
@@ -199,7 +220,7 @@ Treinta minutos de pico contractual con el 100 % del tráfico en un símbolo, si
 
 ![Todo el tráfico sobre un solo activo, subiendo la tasa](imagenes/h2b-caliente.png)
 
-**El giro está en por qué no se cae.** Una partición caliente no es un fenómeno aparte: **es el caso N=1 con otro nombre.** Dos corridas ponen 84 órdenes por segundo sobre un único hilo escritor. Una reparte 36 activos en una sola partición; la otra concentra todo el tráfico en un activo:
+**El giro está en por qué no se cae.** Una partición caliente no es un fenómeno aparte: **es el caso de una sola partición con otro nombre.** Dos corridas ponen 84 órdenes por segundo sobre un único hilo escritor. Una reparte 36 activos en esa única partición; la otra concentra todo el tráfico en un activo:
 
 | | p95 | espera p95 | Ocupación |
 |---|---|---|---|
@@ -210,7 +231,7 @@ Las dos aterrizan a 11 ms de distancia porque están haciendo exactamente lo mis
 
 > **H2b no describe un modo de falla distinto: describe la ley de H2 vista desde el peor reparto posible.** El activo caliente no cambia dónde está el quiebre, cambia cuántos motores lo comparten — y concentrar el tráfico deja el número en uno.
 
-**Dónde sí se cae.** Subiendo la tasa sobre el activo caliente, la latencia se dispara igual de rápido que en el caso N=1: **604 ms a 100 órdenes por segundo**, 625 a 110 y 772 a 120. El quiebre queda justo encima del pico contractual, donde la ley de H2 lo pone.
+**Dónde sí se cae.** Subiendo la tasa sobre el activo caliente, la latencia se dispara igual de rápido que con una sola partición: **604 ms a 100 órdenes por segundo**, 625 a 110 y 772 a 120. El quiebre queda justo encima del pico contractual, donde la ley de H2 lo pone.
 
 La sonda corta a 84 no se puede usar para ubicarlo: perdió 131 órdenes, lo que baja su cifra a un p94,0, y además marcó 341 ms donde la fase larga marcó 155. La culpable es la rampa: la sonda llega al pico en 30 segundos y la fase contractual se toma dos minutos. Por eso el veredicto lo dicta la fase larga.
 
@@ -241,19 +262,23 @@ Este es el número verificable, el que no depende del supuesto de los 8 ms. Se b
 
 > **Presupuesto: 12,4 ms por orden repartiendo, 8,4 ms concentrando.** Los dos acotados por medición, no por extrapolación.
 
-**Y aquí vuelve el hallazgo de H2.** Repartir el pico entre dos particiones sube el presupuesto de 8,4 a 12,4 ms. Eso es **1,48×, no 2×** — y la razón está en la columna de servicio, que sube con `S` y no baja con las particiones. Bajar la ocupación acorta la fila, pero el tiempo de servicio es latencia también.
+**Y aquí vuelve el hallazgo de H2.** Repartir el pico entre dos particiones sube el presupuesto de 8,4 a 12,4 ms. Eso es **1,48×, no 2×** — y la razón está en la columna de servicio, que sube con el costo por orden y no baja al agregar particiones. Bajar la ocupación acorta la fila, pero el tiempo de servicio es latencia también.
 
 > **Corolario:** ninguna cantidad de particiones permite que una orden que cuesta 200 ms cumpla un contrato de 200 ms. El particionamiento es la herramienta contra la **espera**, no contra el **costo por orden**.
 
 ## Por qué creerle a este instrumento
 
-**El motor reproduce el modelo que declara.** El costo por orden se muestrea de una mezcla de tres clases: 90 % baratas, 9 % seis veces más caras y 1 % treinta veces más caras. Con S = 8 ms eso implica costos de 4.598, 27.586 y 137.931 µs. El histograma del motor, medido sobre 14.638 órdenes reales, publica:
+Todo lo anterior descansa en dos supuestos: que el motor de verdad hace lo que
+dice hacer, y que el banco de pruebas es lo bastante estable como para que una
+diferencia entre corridas signifique algo. Esta sección los pone a prueba.
+
+**El motor reproduce el modelo que declara.** El costo por orden se muestrea de una mezcla de tres clases: 90 % baratas, 9 % seis veces más caras y 1 % treinta veces más caras. Con un costo medio de 8 ms eso implica costos de 4.598, 27.586 y 137.931 µs. El histograma del motor, medido sobre 14.638 órdenes reales, publica:
 
 ```
 servicio p50=4603us  p95=27599us  p99.9=137983us
 ```
 
-Tres puntos de la distribución declarada, reproducidos dentro de la resolución del histograma. **Y ese `servicio p95` sale en 27,60 ms en veintiocho de las treinta y una corridas que declararon 8 ms**, sin importar cuántas particiones ni cuánta carga. Solo se mueve en tres, y las tres se explican solas: con media CPU por partición sube a 89 ms, y en las dos corridas que ahogaron la máquina —cuatro particiones más novecientos clientes sobre 14 núcleos— a 32.
+Tres puntos de la distribución declarada, reproducidos dentro de la resolución del histograma. **Y ese `servicio p95` sale en 27,60 ms en veintiocho de las treinta y una corridas que declararon 8 ms por orden**, sin importar cuántas particiones ni cuánta carga. Solo se mueve en tres, y las tres se explican solas: con media CPU por partición sube a 89 ms, y en las dos corridas que ahogaron la máquina —cuatro particiones más novecientos clientes sobre 14 núcleos— a 32.
 
 Es la prueba de que las diferencias que esta página reporta vienen de la cola, no de un banco que se movió por debajo.
 
@@ -271,7 +296,7 @@ Esa figura es la sesión entera: cuarenta rampas, cada una una corrida. La meset
 
 ![Esperando en fila contra trabajando](imagenes/espera-servicio.png)
 
-**Las cifras del tablero y las de esta página no son la misma cuenta.** El tablero solo puede leer lo que el generador publica cada cinco segundos: percentiles de ventana. Tomar un percentil de percentiles corre unos puntos por encima del agregado: 86 contra 77,68 ms en la fase del pico. Una ventana de cinco segundos mide cuatrocientas órdenes; la fase completa mide ciento sesenta y siete mil. **El tablero sirve para ver la corrida mientras pasa; el veredicto lo dicta el resumen que el generador emite al cerrar**, y es el que está en las tablas de arriba.
+**Las cifras del tablero y las de esta página no son la misma cuenta.** El tablero solo puede leer lo que el generador publica cada cinco segundos: un percentil por cada ventana de cinco segundos. Resumir esos percentiles de ventana en uno solo da un número unos puntos más alto que calcularlo sobre todas las órdenes juntas: 86 contra 77,68 ms en la fase del pico. Una ventana de cinco segundos mide cuatrocientas órdenes; la fase completa mide ciento sesenta y siete mil. **El tablero sirve para ver la corrida mientras pasa; el veredicto lo dicta el resumen que el generador emite al cerrar**, y es el que está en las tablas de arriba.
 
 **Y el reparto nunca falló.** Cero violaciones de reparto, cero órdenes rechazadas y cero respuestas con error: cada símbolo lo respondió siempre la misma partición. También en las doce corridas que empujaron al motor más allá de su techo y le perdieron órdenes al generador.
 

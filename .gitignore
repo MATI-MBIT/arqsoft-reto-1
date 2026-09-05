@@ -13,3 +13,6 @@ build/
 *.log
 load/k6/results/
 bin/
+
+# Ajuste por máquina (org.gradle.java.home): va en ~/.gradle/gradle.properties
+gradle.properties

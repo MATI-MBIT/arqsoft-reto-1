@@ -21,11 +21,12 @@ Documentación del **Reto 1** (ARTI4109 · Arquitectura de Software): validar el
 
 ## Contenido
 
-Cinco documentos, en el orden en que conviene leerlos:
+En el orden en que conviene leerlos:
 
 - **[Experimento E01](experimento.html)** — la apuesta: qué se prueba, las hipótesis H1/H2/H2b, las fases F1–F4 y los criterios de éxito.
 - **[Diseño del experimento](diseno-experimento.html)** — qué corre `make experimento`: las 40 corridas, qué pregunta responde cada una, cuánto dura y qué hace válida una medición.
 - **[Implementación](implementacion.html)** — cómo funciona el prototipo: el viaje de una orden, de la táctica al código, las perillas y cómo se mide.
+- **[Arquitectura](Arquitectura/)** — una página por pieza, de lo que hace hasta la línea que lo hace: [common-proto](Arquitectura/common-proto.html), [ingest-router](Arquitectura/ingest-router.html), [matching-engine](Arquitectura/matching-engine.html) y [k6](Arquitectura/k6.html).
 - **[Evidencia de corridas](evidencia-corridas.html)** — los resultados, cómo se leen los números, los hallazgos y las salidas crudas.
 - **[Construcción de componentes](construccion-componentes.html)** — con qué está construida cada pieza del monorepo y qué decisión hay detrás.
 

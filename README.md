@@ -14,6 +14,7 @@ Monorepo del **PoC del experimento E01** (Reto 1, ARTI4109): validar el patrón 
 | [`docs/experimento.md`](docs/experimento.md) | La apuesta: hipótesis H1/H2/H2b, escenarios vinculados, fases F1–F4, métricas y criterios de éxito |
 | [`docs/diseno-experimento.md`](docs/diseno-experimento.md) | Qué corre `make experimento`: las 40 corridas, su objetivo, su duración y qué hace válida una medición |
 | [`docs/implementacion.md`](docs/implementacion.md) | Cómo funciona el prototipo: viaje de una orden, de la táctica al código, configuración, medición y límites |
+| [`docs/Arquitectura/`](docs/Arquitectura/) | Una página por pieza, de lo que hace hasta la línea que lo hace: [common-proto](docs/Arquitectura/common-proto.md), [ingest-router](docs/Arquitectura/ingest-router.md), [matching-engine](docs/Arquitectura/matching-engine.md) y [k6](docs/Arquitectura/k6.md) |
 | [`docs/evidencia-corridas.md`](docs/evidencia-corridas.md) | Los resultados, cómo se leen los números, los hallazgos y las salidas crudas |
 | [`docs/construccion-componentes.md`](docs/construccion-componentes.md) | Con qué está construida cada pieza del monorepo y qué decisión hay detrás |
 | [`load/README.md`](load/README.md) | Detalle de las corridas de carga con k6 |

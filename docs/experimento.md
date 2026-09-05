@@ -1,5 +1,5 @@
 ---
-title: Experimento E01 v3
+title: Experimento E01
 nav_order: 2
 ---
 

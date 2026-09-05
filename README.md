@@ -11,8 +11,10 @@ Monorepo del **PoC del experimento E01** (Reto 1, ARTI4109): validar el patrón 
 
 | Documento | Contenido |
 |---|---|
-| [`docs/experimento-e01.md`](docs/experimento-e01.md) | Ficha del experimento (espejo de Helix): hipótesis H1/H2/H2b, escenarios vinculados, fases, métricas y criterios |
-| [`docs/implementacion.md`](docs/implementacion.md) | Cómo está implementado el PoC: componentes, flujo de una orden, mapeo táctica → código, configuración, medición y limitaciones |
+| [`docs/experimento.md`](docs/experimento.md) | La apuesta: hipótesis H1/H2/H2b, escenarios vinculados, fases F1–F4, métricas y criterios de éxito |
+| [`docs/implementacion.md`](docs/implementacion.md) | Cómo funciona el prototipo: viaje de una orden, de la táctica al código, configuración, medición y límites |
+| [`docs/evidencia-corridas.md`](docs/evidencia-corridas.md) | Los resultados, cómo se leen los números, los hallazgos y las salidas crudas |
+| [`docs/construccion-componentes.md`](docs/construccion-componentes.md) | Con qué está construida cada pieza del monorepo y qué decisión hay detrás |
 | [`load/README.md`](load/README.md) | Detalle de las corridas de carga con k6 |
 
 ## Estructura del monorepo

@@ -1,105 +1,138 @@
 ---
 title: Construcción de componentes
-nav_order: 5.5
+nav_order: 5
 ---
 
-# Las piezas del proyecto
+# Con qué está construida cada pieza
 
-Este documento explica con qué tecnología se construyó cada pieza del monorepo, qué decisiones se tomaron y cómo se conecta con el resto — mismo contenido que [Construcción de componentes](construccion-componentes.html), sin fragmentos de código ni referencias a líneas de archivo.
+El prototipo son tres servicios Java, cinco scripts de carga y ocho archivos de configuración. Este documento dice con qué se construyó cada uno y qué decisión hay detrás.
+
+Hay una decisión que se repite en todas las piezas: **nada que se haga dos veces se hace a mano.** Las versiones viven en un catálogo y no en tres archivos; el código del contrato se genera y no se escribe; cada corrida es un comando; y una corrida que no se pueda verificar no se reporta. El experimento tiene que poder repetirlo alguien más.
 
 ## Mapa de dependencias
 
 ```mermaid
 flowchart TD
-
-    CAT["Catálogo de versiones\n(una sola fuente de verdad)"] --> CP
+    CAT["Catálogo de versiones\nuna sola fuente de verdad"] --> CP
     CAT --> IR
     CAT --> ME
-    CP["Contrato compartido\n(gRPC/Protobuf)"] --> IR["Router de ingesta"]
-    CP --> ME["Motor de emparejamiento"]
-    IR --> DK["Empaquetado y topología\n(contenedores + orquestación)"]
+    CP["Contrato compartido\ngRPC + Protobuf"] --> IR["Router de ingesta"]
+    CP --> ME["Motor de emparejamiento\nLMAX Disruptor"]
+    IR --> DK["Empaquetado y topología\nDocker + Compose"]
     ME --> DK
-    DK --> K6["Generador de carga\n+ orquestador de pruebas"]
+    DK --> K6["Arnés de carga\nk6 + scripts de medición"]
 ```
 
-## 1. El monorepo (raíz del proyecto)
+## 1. El monorepo — un repositorio, tres servicios
 
-**Qué es:** la estructura que permite que los tres servicios convivan en un solo repositorio con convenciones y versiones unificadas, en vez de tres proyectos independientes que pueden desincronizarse.
+**Qué es.** Un *monorepo*: los tres servicios conviven en un solo repositorio con convenciones y versiones unificadas, en vez de ser tres proyectos que pueden desincronizarse.
 
-**Cómo se construyó:** un archivo declara los módulos que componen el proyecto; la configuración raíz aplica a todos los subproyectos las convenciones comunes (versión del lenguaje, codificación de archivos) para que ningún módulo tenga que repetirlas; y un catálogo de versiones centraliza cada dependencia externa (el motor de eventos de alto rendimiento, gRPC, Protobuf, la librería de histogramas de latencia) en un solo lugar — subir una versión es cambiar una línea, no buscarla en tres archivos distintos.
+**Con qué.** Gradle. El proyecto raíz declara los tres módulos y les aplica las mismas convenciones —Java 21, codificación UTF-8— para que ninguno tenga que repetirlas.
 
-El sistema de construcción queda fijado a una versión específica mediante un *wrapper*, así cualquier persona del equipo compila con exactamente la misma herramienta sin instalar nada por su cuenta.
+**La decisión.** Un **catálogo de versiones** centraliza cada dependencia externa en un solo archivo: LMAX Disruptor 4.0.0, gRPC 1.68.1, Protobuf 4.28.3, HdrHistogram 2.2.2 y SLF4J 2.0.16. Subir una versión es cambiar una línea, no buscarla en tres archivos distintos.
 
-## 2. El contrato compartido — la única fuente de verdad de la comunicación
+La herramienta de construcción queda fijada por un *wrapper* —un arrancador versionado que vive dentro del repositorio— en Gradle 8.14.3. Cualquiera compila con exactamente la misma herramienta sin instalar nada por su cuenta.
 
-**Qué es:** la definición del servicio gRPC y los mensajes Protobuf que router y motor usan para entenderse, más el código generado automáticamente a partir de esa definición.
+## 2. El contrato compartido — lo único que router y motor tienen que acordar
 
-**Cómo se construyó:** un módulo de librería con el plugin de generación de Protobuf, que engancha dos generadores al proceso de compilación: uno para los mensajes y otro para los stubs del servicio. Al compilar, el código generado aparece automáticamente y los otros dos módulos lo consumen como una dependencia más — nadie escribe ni versiona ese código a mano.
+**Qué es.** La definición del servicio gRPC y de los mensajes Protobuf con los que el router y el motor se entienden, más el código Java que sale de esa definición.
 
-**Decisiones del contrato:**
+**Con qué.** Un módulo de librería con el plugin de Protobuf para Gradle, que engancha dos generadores al proceso de compilación: uno para los mensajes y otro para los clientes y servidores del servicio. Al compilar, ese código aparece solo y los otros dos módulos lo consumen como una dependencia más. **Nadie lo escribe ni lo versiona a mano.**
+
+**Las decisiones del contrato:**
 
 | Decisión | Por qué |
 |---|---|
-| Los precios se representan como enteros (centavos), no como número de punto flotante | Sin aritmética flotante en el camino crítico: los centavos quedan exactos, sin errores de redondeo |
-| "Rechazado" es un valor válido de la respuesta, no un error de transporte | El backpressure es semántica del dominio del negocio, no una falla de la comunicación |
-| La respuesta incluye la latencia interna medida por el motor | Permite contrastar el reloj interno del motor contra el del generador de carga |
-| Un único servicio de ingesta, implementado igual por el router y por cada shard | El generador de carga puede apuntar a cualquiera de los dos, para aislar el costo de cada uno |
+| Los precios son enteros de centavos, no números con decimales flotantes | Sin aritmética flotante en el camino crítico: los centavos quedan exactos, sin errores de redondeo |
+| "Rechazado" es un valor válido de la respuesta, no un error de transporte | Frenar la entrada es una decisión del negocio, no una falla de la comunicación |
+| La respuesta incluye la latencia que el motor midió por dentro | Permite contrastar el reloj del motor contra el del generador de carga |
+| Un solo servicio de ingesta, implementado igual por el router y por cada motor | El generador puede apuntar a cualquiera de los dos, y así se aísla el costo del router |
 
-## 3. El motor de emparejamiento — el shard con un único escritor
+## 3. El motor de emparejamiento — un proceso, una partición, un escritor
 
-**Qué es:** el corazón del experimento. Un proceso = una partición = un único hilo que escribe en los libros de órdenes de esa partición.
+**Qué es.** El corazón del experimento. Un proceso equivale a una partición del universo de activos, y esa partición la escribe **un solo hilo**.
 
-**Cómo se construyó**, en el orden en que fluye una orden:
+**Con qué.** LMAX Disruptor 4.0.0 para la cola de entrada, gRPC para el borde de red y HdrHistogram para medir la latencia. Nada más: no hay base de datos, ni caché, ni broker.
 
-- **El ensamblaje del shard** construye el pipeline de procesamiento con sus cuatro decisiones de diseño: una fábrica que preasigna todas las entradas del buffer al arrancar (no se crea memoria nueva por cada orden en régimen), un tamaño de buffer fijo (potencia de dos), varios hilos de red publicando en paralelo pero un único hilo consumiendo, y una estrategia de espera para ese hilo cuando no hay trabajo. Esa estrategia es una decisión de diseño registrada como deuda técnica: la elegida es amigable con una máquina compartida entre varios procesos; hay alternativas que bajan aún más la latencia a costa de que ese hilo consuma un núcleo completo de forma constante.
-- **La entrada del buffer** es reciclable a propósito: se preasignan todas al arrancar y se reutilizan en cada ciclo, para que el camino crítico en régimen no genere basura de memoria — la presión del recolector de basura es, según el análisis de decisiones del proyecto, la causa más probable de colas largas inesperadas.
-- **El borde gRPC** publica en el buffer sin bloquear los hilos de red: si no hay espacio, responde con rechazo inmediato (la cola acotada actuando). Marca el instante de "arribo al motor", que define el inicio de la medición de latencia interna, y entrega la respuesta de forma asíncrona — ningún hilo de red queda esperando.
-- **El único escritor** es el único consumidor del buffer: procesa en el orden de llegada, sin locks. Mantiene un mapa de los libros de órdenes de sus símbolos, ejecuta el matching, registra la latencia en un histograma pensado para lecturas concurrentes (porque un hilo aparte reporta percentiles cada 10 segundos) y completa la respuesta.
-- **El libro de un símbolo** aplica prioridad precio-tiempo con estructuras de datos estándar: una estructura ordenada por precio (mejor precio primero) para cada lado (compra/venta), y dentro de cada nivel de precio, una cola en orden de llegada. El cruce recorre el lado contrario mientras el precio siga coincidiendo, llena total o parcialmente la orden, y deja el remanente en espera. No es segura para concurrencia a propósito: la exclusión mutua la garantiza el diseño (un solo hilo la toca), no un mecanismo de bloqueo.
+Estas son sus piezas, en el orden en que las recorre una orden.
 
-## 4. El router de ingesta — sharding y cola acotada
+**El anillo de entrada** es un *ring buffer*: un arreglo circular de casillas que se preasignan al arrancar y se reciclan en cada vuelta. En régimen el camino crítico no pide memoria nueva, así que no alimenta al recolector de basura. Esa presión es, según el análisis de decisiones del proyecto, la causa más probable de una cola larga inesperada.
 
-**Qué es:** la puerta de entrada del sistema, y donde viven dos tácticas de diseño: el particionamiento por símbolo y la amortiguación de ráfagas con backpressure.
+**El borde gRPC** publica en el anillo sin bloquear los hilos de red. Si no hay casilla libre responde con rechazo inmediato: así se ve la fila con límite haciendo su trabajo. Ahí también estampa el instante de "arribo al motor", que abre la medición interna de latencia.
 
-**Cómo se construyó:** el arranque lee la lista de shards disponibles (su orden define a qué índice de partición corresponde cada uno), crea un canal de comunicación y un cliente asíncrono por shard, y reporta periódicamente cuántas solicitudes están en vuelo y cuántas se han rechazado. El camino crítico de cada solicitud hace tres cosas en secuencia: intenta adquirir un cupo de una cola acotada (si está llena, rechaza de inmediato en vez de encolar sin límite), calcula el shard dueño del símbolo con una función de hash determinística, y reenvía la solicitud de forma asíncrona.
+**El único escritor** consume el anillo en orden de llegada, sin candados. Guarda los libros de sus símbolos, ejecuta el cruce, registra la latencia y completa la respuesta. Un hilo aparte lee esos histogramas cada diez segundos, así que la librería de medición está elegida para admitir esa lectura concurrente.
 
-La función de hash de cadenas de texto del lenguaje es estable por especificación, así que el mismo símbolo siempre cae en el mismo shard. El router no guarda ningún estado — no conoce libros ni órdenes — y por eso, en un diseño de producción, podría replicarse horizontalmente sin coordinación adicional.
+**El libro de un símbolo** aplica prioridad precio-tiempo con estructuras estándar de Java: un mapa ordenado por precio para cada lado —compras de mayor a menor, ventas de menor a mayor— y dentro de cada nivel una cola por orden de llegada. El cruce recorre el lado contrario mientras el precio siga coincidiendo, llena la orden total o parcialmente y deja el remanente en reposo. **No es seguro para concurrencia a propósito:** la exclusión mutua la garantiza el diseño, no un candado.
+
+**El modelo de costo por orden** simula la lógica de negocio que el prototipo no implementa —validar, verificar riesgo y saldos, calcular comisiones, generar el trato—. Quema CPU en el hilo del escritor en vez de dormir, porque un `sleep` devuelve el núcleo y no ensucia la caché. Muestrea una distribución sesgada, no una constante: por defecto, una mezcla de tres clases de orden (90 % baratas, 9 % seis veces más caras, 1 % treinta veces más caras). Cada partición usa su propia semilla, de modo que las órdenes caras no caigan sobre todas al mismo tiempo.
+
+**La bitácora** escribe cada orden en un archivo de solo-anexado y fuerza el volcado a disco una vez por lote, no una vez por orden. Escribe sin reservar memoria, reutilizando un búfer directo. Se puede cablear de tres formas —apagada, en paralelo con el cruce, o encadenada antes de él— y **la diferencia entre esas tres es exactamente la afirmación que hay que probar** sobre mantener el registro fuera del camino crítico.
+
+**La limpieza de la casilla** va encadenada al final, después de todos los consumidores. Tiene que ir ahí: con dos consumidores en paralelo, ninguno de los dos puede modificar el evento mientras el otro lo lee.
+
+**Una decisión que quedó registrada como deuda.** La estrategia con la que el escritor espera cuando no hay trabajo es amable con una máquina compartida entre varios procesos. Hay alternativas que bajan más la latencia, a costa de que ese hilo queme un núcleo entero de forma permanente. Se re-evaluará con datos, no por gusto.
+
+## 4. El router de ingesta — reparto por símbolo y fila con límite
+
+**Qué es.** La puerta de entrada del sistema, y donde viven dos tácticas del diseño: repartir por activo y frenar las ráfagas antes de que entren.
+
+**Con qué.** gRPC y un semáforo de la librería estándar. Nada más.
+
+**Cómo funciona.** Al arrancar lee la lista de motores disponibles, cuyo orden define qué índice de partición le toca a cada uno, y abre un canal y un cliente asíncrono por motor. Cada diez segundos reporta cuántas solicitudes tiene en vuelo y cuántas rechazó. El camino crítico de cada solicitud hace tres cosas seguidas: pide un cupo de la fila con límite y rechaza de inmediato si está llena, calcula el motor dueño del símbolo con una función de dispersión determinística, y reenvía sin esperar.
+
+La función de dispersión de cadenas de texto de Java está fijada por especificación, así que el mismo símbolo cae siempre en el mismo motor. El router **no guarda estado alguno** —no conoce libros ni órdenes— y por eso, en un despliegue real, se podría replicar sin coordinación entre réplicas.
 
 ## 5. Empaquetado y topología
 
-Una sola definición de contenedor, parametrizada por el servicio que se quiere construir, sirve para ambos servicios: una etapa de compilación y una etapa final liviana que solo copia el resultado ya compilado. Ahí también se configuran los parámetros de la máquina virtual del lenguaje, incluida la elección de un recolector de basura orientado a pausas muy cortas.
+**Con qué.** Una sola definición de contenedor sirve para los dos servicios, parametrizada por cuál se quiere construir. Tiene dos etapas: una compila con Gradle sobre JDK 21, y la final —liviana, sobre Eclipse Temurin 21— solo copia el resultado. Ahí se fijan también los parámetros de la máquina virtual, incluido **ZGC**, un recolector de basura orientado a pausas cortísimas.
 
-La topología por defecto levanta el router más dos shards; un perfil alternativo agrega dos shards más sin tocar código — pasar de dos a cuatro particiones es cambiar qué perfil se levanta, no reescribir nada. El aislamiento de núcleos de CPU por contenedor está disponible en la configuración pero comentado, porque solo tiene efecto en un sistema operativo Linux nativo.
+**Los perfiles de arranque de la máquina virtual se anexan, nunca se reemplazan.** Cuando se enciende la grabación de diagnóstico, sus opciones se suman a las que ya existen. Reemplazar la cadena entera apagaría el recolector de basura sin avisar, y la corrida perfilada estaría midiendo otra configuración.
+
+**La topología** por defecto levanta el router más dos motores; un perfil alternativo agrega dos más sin tocar código. Pasar de dos a cuatro particiones es cambiar qué perfil se levanta.
+
+**Los límites de recursos son una llave de nivel superior, a propósito.** La forma más conocida de declararlos en Compose —`deploy.resources`— **se ignora en silencio** fuera de un clúster Swarm: el archivo queda escrito, el límite no existe y la corrida parece confinada sin estarlo. Por eso la cuota de CPU, la fijación a núcleos concretos y el tope de memoria se declaran como llaves directas del servicio. Y por eso hay un comando que lee el grupo de control real del contenedor en vez de creerle al archivo.
+
+La fijación a núcleos concretos solo muerde en un anfitrión Linux: en macOS, Docker corre dentro de una máquina virtual. La del router sigue comentada, porque nunca hizo falta restringirlo.
+
+**Ocho volúmenes con nombre** guardan lo que las corridas producen: uno de bitácora y uno de grabaciones de diagnóstico por cada una de las cuatro particiones. La bitácora no puede escribirse en la capa de escritura del contenedor, que es un sistema de archivos superpuesto y no representa a un disco de verdad.
 
 ## 6. El arnés de pruebas de carga
 
-Un único script de generación de carga, parametrizado por variables de entorno, cubre todas las fases del experimento: cuál fase correr, una versión corta para verificar el montaje, la tasa pico a explorar, y contra qué destino apuntar (el router o un shard directo).
+**Con qué.** k6 como generador, con soporte nativo de gRPC, y cinco scripts de shell que lo orquestan.
 
-Las decisiones que hacen válida la medición: un **modelo abierto de llegada** (la carga es una tasa objetivo, no un número fijo de clientes esperando turno — el modelo cerrado subestima los percentiles bajo saturación), **umbrales como criterio ejecutable** (la corrida falla en vivo si el p95 supera el límite o si aparece algún rechazo en las fases oficiales), y un contador propio de rechazos por backpressure que convierte la señal de esa táctica de diseño en una métrica de primera clase, no en una suposición.
+**El generador** es un solo script parametrizado por variables de entorno que cubre todas las fases: cuál correr, una versión corta para verificar el montaje, la tasa pico a explorar y contra qué apuntar. Tres decisiones lo hacen válido como instrumento:
 
-Un orquestador de un solo comando encadena: levantar una topología limpia, correr cada fase en orden, apagar todo, y dejar tanto la salida cruda como un resumen estructurado de cada fase archivados por corrida. Imprime una tabla final y **termina con un código de error si alguna fase oficial incumple su criterio** — por eso sirve tal cual como puerta de validación automática.
+- **Modelo abierto de llegada.** La carga se expresa como una tasa objetivo, no como un número fijo de clientes esperando turno. El modelo cerrado subestima los percentiles bajo saturación, porque cuando el sistema se atasca el generador deja de pedir.
+- **Umbrales como criterio ejecutable.** La corrida falla en vivo si el percentil 95 supera el límite, o si aparece un rechazo en las fases oficiales. El criterio de éxito no se evalúa después leyendo una tabla: lo evalúa la corrida.
+- **Los rechazos son una métrica de primera clase.** Un contador propio los cuenta, así que la señal de la fila con límite es un dato y no una suposición.
 
-## 7. La interfaz operativa del proyecto
+**Los cinco scripts** convierten en un comando cada pregunta que el experimento hace. Uno corre el ciclo completo. Los otros cuatro barren el costo por orden hasta encontrar el presupuesto, comparan cuotas de CPU, comparan las tres disposiciones de la bitácora y perfilan una fase con la grabadora de diagnóstico de la máquina virtual.
 
-Todo el ciclo de vida del proyecto —compilar, levantar cada topología, correr cada fase individual, explorar el punto de quiebre, comparar configuraciones de sharding, correr el ciclo completo del experimento, previsualizar la documentación— está expuesto como comandos autodocumentados. La convención de fondo: ningún paso que se repite se ejecuta "a mano" — se vuelve un comando reproducible por cualquier integrante del equipo o por un sistema de integración continua.
+**Los cuatro scripts de comparación comparten un guardián de validez**, y esa es la pieza más importante del arnés. Antes de leer una cifra, verifica que todas las respuestas hayan sido correctas y que el motor haya alcanzado a publicar su resumen final. Sin ese guardián, una topología muerta produce números excelentes: un servicio caído responde más rápido que uno vivo. Esa corrida existió, se reportó y estuvo a punto de convertirse en una conclusión.
+
+**El orquestador del ciclo completo** encadena todo: levanta una topología limpia, corre cada fase en orden, apaga, y archiva por corrida tanto la salida cruda como un resumen estructurado. Imprime una tabla final y **termina con código de error si alguna fase oficial incumple su criterio**, así que sirve tal cual como puerta de validación automática.
+
+## 7. La interfaz operativa
+
+Todo el ciclo de vida está expuesto como comandos autodocumentados: compilar, levantar cada topología, correr cada fase, buscar el punto de quiebre, comparar configuraciones, verificar que los límites de recursos se aplicaron de verdad y previsualizar la documentación. La convención de fondo es la misma del resto del proyecto: **ningún paso que se repite se ejecuta a mano.** Se vuelve un comando que cualquiera del equipo, o un sistema de integración continua, puede correr igual.
 
 ## 8. El sitio de documentación
 
-Generado con un motor de sitios estáticos sobre un tema de documentación con navegación lateral, búsqueda integrada y renderizado nativo de diagramas — se publica automáticamente en cada cambio a la rama principal desde la carpeta de documentación. La página de evidencia de corridas es la que se referencia como evidencia externa del experimento.
+Jekyll con el tema *just-the-docs*, que trae navegación lateral, búsqueda integrada y renderizado nativo de diagramas Mermaid. GitHub Pages lo publica desde la carpeta `docs/` de la rama principal, sin necesidad de un flujo de trabajo propio: cada cambio que se integre queda publicado. La página de evidencia de corridas es la que el registro del curso enlaza como evidencia externa del experimento.
 
 ## Cómo encaja todo
 
 | Componente | Construido con | Su única responsabilidad |
 |---|---|---|
-| Monorepo raíz | Sistema de construcción + catálogo de versiones centralizado | Convenciones y versiones únicas para todo el proyecto |
-| Contrato compartido | Protobuf + generación automática de stubs gRPC | El contrato; el código se genera, nunca se escribe a mano |
-| Motor de emparejamiento | Buffer circular de alto rendimiento + gRPC + histogramas de latencia | Un shard: buffer → único escritor → libro en memoria |
-| Router de ingesta | gRPC + cola acotada con semáforo | Sharding determinístico y backpressure |
-| Empaquetado y despliegue | Contenedores multi-etapa + orquestación con perfiles | Topología de N=2 o N=4 particiones sin tocar código |
-| Arnés de carga | Generador con modelo abierto de llegada + orquestación en script | Las fases del experimento como código, con veredicto automático |
-| Interfaz operativa | Comandos autodocumentados | Toda operación es reproducible por cualquiera |
-| Documentación | Generador de sitio estático con navegación y diagramas | Documentación y evidencia publicadas en cada cambio |
+| Monorepo raíz | Gradle 8.14.3 + catálogo de versiones | Convenciones y versiones únicas para todo el proyecto |
+| Contrato compartido | Protobuf 4.28.3 + gRPC 1.68.1, código generado | El contrato; el código se genera, nunca se escribe |
+| Motor de emparejamiento | LMAX Disruptor 4.0.0 + gRPC + HdrHistogram 2.2.2 | Una partición: anillo → único escritor → libro en memoria (+ bitácora) |
+| Router de ingesta | gRPC + semáforo de la librería estándar | Reparto determinístico por símbolo y freno de entrada |
+| Empaquetado y despliegue | Docker multi-etapa (Temurin 21, ZGC) + Compose con perfiles | Topología de 2 o 4 particiones sin tocar código, con límites verificables |
+| Arnés de carga | k6 ≥ 0.49 + cinco scripts de shell | Las preguntas del experimento como comandos, con veredicto automático |
+| Interfaz operativa | Comandos autodocumentados en el Makefile | Toda operación es reproducible por cualquiera |
+| Documentación | Jekyll + just-the-docs + Mermaid | Documentación y evidencia publicadas en cada cambio |
 
 ---
 
-*¿Quieres las versiones exactas de cada herramienta, los fragmentos de código de cada clase y el detalle línea por línea de cada decisión? Eso está en la versión técnica: [Construcción de componentes](construccion-componentes.html).*
+¿Cómo viaja una orden por dentro de todo esto, qué se mide y con qué números salió? Eso está en [Implementación](implementacion.html) y en la [Evidencia de corridas](evidencia-corridas.html).

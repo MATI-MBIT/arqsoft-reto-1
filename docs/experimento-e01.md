@@ -57,7 +57,7 @@ flowchart LR
 
 ### Design Hypothesis
 
-**H1 — Latencia (ASR-02):** si el motor implementa el patrón LMAX, entonces se cumple la medida del escenario Critical de latencia enlazado abajo bajo la carga de su Ambiente A. El patrón, en concreto: libro de órdenes en memoria por activo, un único hilo escritor por partición alimentado por un ring buffer (Disruptor), y journaling y notificación fuera del camino crítico. La razón: el procesamiento secuencial en memoria elimina bloqueos y contención.
+**H1 — Latencia (ASR-02):** si el motor implementa el patrón LMAX, entonces cumple el escenario Critical de latencia enlazado abajo, en su Ambiente A. El patrón, en concreto: libro de órdenes en memoria por activo; un único hilo escritor por partición, alimentado por un ring buffer (Disruptor); journaling y notificación fuera del camino crítico. La razón: procesar en secuencia y en memoria elimina bloqueos y contención — el costo por orden es trabajo, no coordinación.
 
 ```mermaid
 flowchart LR
@@ -68,7 +68,7 @@ flowchart LR
     W -.->|"asíncrono, fuera\ndel camino crítico"| J["journaling +\nnotificación"]
 ```
 
-**H2 — Escalabilidad transitoria (ASR-03):** si la ingesta enruta cada orden por sharding determinístico hacia N shards LMAX independientes, entonces se cumple la medida del escenario Critical de escalabilidad enlazado abajo. El hash del símbolo % N decide la partición, y una cola acotada amortiza las ráfagas. Vale durante toda la ventana de pico de su Ambiente B, y siempre que la carga se reparta entre varios activos. La razón: el throughput total crece agregando shards, sin exigir más de un núcleo por partición. El experimento debe hallar además el **N mínimo** que satisface el contrato.
+**H2 — Escalabilidad transitoria (ASR-03):** si la ingesta reparte las órdenes entre N shards LMAX independientes —hash(símbolo) % N decide la partición; una cola acotada amortigua las ráfagas—, entonces el sistema cumple el escenario Critical de escalabilidad enlazado abajo, durante toda la ventana de pico de su Ambiente B. La condición: que la carga se reparta entre varios activos — el caso contrario es H2b. La razón: cada shard suma su propio techo, así que el throughput crece agregando particiones sin exigir más de un núcleo por cada una. El experimento debe hallar además el **N mínimo** que satisface el contrato.
 
 ```mermaid
 flowchart TB
@@ -78,7 +78,7 @@ flowchart TB
     RT -->|"~1/N de la carga"| SC["shard-N…\n+ shards = + throughput"]
 ```
 
-**H2b — Partición caliente (exploratoria, subordinada a H2):** si el pico se concentra al 100 % en un solo activo, la medida del escenario deja de cumplirse antes de alcanzar el pico de Ambiente B. La razón: el techo de un shard es un solo núcleo por diseño. La Fase 4 busca ese punto de quiebre, no un aprobado o reprobado. *Veredicto: se manifiesta — la partición caliente duplica el p95 (ver Results).*
+**H2b — Partición caliente (exploratoria, subordinada a H2):** si el pico se concentra al 100 % en un solo activo, el escenario deja de cumplirse antes de alcanzar el pico de Ambiente B. La razón: todo el tráfico cae en el shard dueño del símbolo, y el techo de un shard es un solo núcleo por diseño. La Fase 4 busca ese punto de quiebre, no un aprobado o reprobado. *Veredicto: se manifiesta — la partición caliente duplica el p95 (ver Results).*
 
 ```mermaid
 flowchart TB

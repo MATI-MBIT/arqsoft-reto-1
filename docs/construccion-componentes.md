@@ -1,176 +1,105 @@
 ---
 title: Construcción de componentes
-nav_order: 5
+nav_order: 5.5
 ---
 
-# Construcción de cada componente del proyecto
+# Las piezas del proyecto
 
-Este documento explica **cómo se construyó cada pieza** del monorepo: con qué tecnología, qué decisiones se tomaron al armarla y cómo se conecta con el resto. Es el complemento de [Implementación](implementacion.html), que describe cómo funciona el sistema en conjunto; aquí el foco es la construcción de cada componente por separado.
+Este documento explica con qué tecnología se construyó cada pieza del monorepo, qué decisiones se tomaron y cómo se conecta con el resto — mismo contenido que [Construcción de componentes](construccion-componentes.html), sin fragmentos de código ni referencias a líneas de archivo.
 
 ## Mapa de dependencias
 
 ```mermaid
 flowchart TD
-    CAT["gradle/libs.versions.toml\n(catálogo de versiones)"] --> CP
+
+    CAT["Catálogo de versiones\n(una sola fuente de verdad)"] --> CP
     CAT --> IR
     CAT --> ME
-    CP["services/common-proto\ncontrato gRPC/Protobuf"] --> IR["services/ingest-router"]
-    CP --> ME["services/matching-engine"]
-    IR --> DK["deploy/Dockerfile + docker-compose"]
+    CP["Contrato compartido\n(gRPC/Protobuf)"] --> IR["Router de ingesta"]
+    CP --> ME["Motor de emparejamiento"]
+    IR --> DK["Empaquetado y topología\n(contenedores + orquestación)"]
     ME --> DK
-    DK --> K6["load/k6/poc.js + run-e2e.sh"]
+    DK --> K6["Generador de carga\n+ orquestador de pruebas"]
 ```
 
----
+## 1. El monorepo (raíz del proyecto)
 
-## 1. El monorepo Gradle (raíz)
+**Qué es:** la estructura que permite que los tres servicios convivan en un solo repositorio con convenciones y versiones unificadas, en vez de tres proyectos independientes que pueden desincronizarse.
 
-**Qué es:** la estructura que permite que tres servicios convivan en un repositorio con convenciones y versiones unificadas.
+**Cómo se construyó:** un archivo declara los módulos que componen el proyecto; la configuración raíz aplica a todos los subproyectos las convenciones comunes (versión del lenguaje, codificación de archivos) para que ningún módulo tenga que repetirlas; y un catálogo de versiones centraliza cada dependencia externa (el motor de eventos de alto rendimiento, gRPC, Protobuf, la librería de histogramas de latencia) en un solo lugar — subir una versión es cambiar una línea, no buscarla en tres archivos distintos.
 
-**Cómo se construyó:** tres archivos hacen todo el trabajo.
+El sistema de construcción queda fijado a una versión específica mediante un *wrapper*, así cualquier persona del equipo compila con exactamente la misma herramienta sin instalar nada por su cuenta.
 
-- `settings.gradle.kts` declara los módulos (`services:common-proto`, `services:matching-engine`, `services:ingest-router`) y resuelve el plugin de Protobuf desde Maven Central.
-- `build.gradle.kts` (raíz) aplica las convenciones comunes a todos los subproyectos: **toolchain de Java 21** (TEC-1) y codificación UTF-8. Ningún módulo repite esta configuración.
-- `gradle/libs.versions.toml` es el **catálogo de versiones**: Disruptor 4.0.0, gRPC 1.68.1, Protobuf 4.28.3, HdrHistogram 2.2.2. Cada dependencia se declara una sola vez y los módulos la referencian como `libs.disruptor` — subir una versión es cambiar una línea.
+## 2. El contrato compartido — la única fuente de verdad de la comunicación
 
-El wrapper (`gradlew` + `gradle/wrapper/`) fija Gradle 8.14.3 para que cualquier integrante compile con la misma versión sin instalar nada.
+**Qué es:** la definición del servicio gRPC y los mensajes Protobuf que router y motor usan para entenderse, más el código generado automáticamente a partir de esa definición.
 
----
-
-## 2. `services/common-proto` — el contrato
-
-**Qué es:** la única fuente de verdad de la comunicación: el archivo `matching.proto` y los stubs Java que se generan de él.
-
-**Cómo se construyó:** un módulo `java-library` con el plugin `com.google.protobuf`, que engancha dos generadores al build: `protoc` (mensajes) y `protoc-gen-grpc-java` (stubs de servicio). Al correr `./gradlew build`, el código generado aparece en `build/generated/` y los otros dos módulos lo consumen como una dependencia más — nadie escribe ni versiona código generado.
+**Cómo se construyó:** un módulo de librería con el plugin de generación de Protobuf, que engancha dos generadores al proceso de compilación: uno para los mensajes y otro para los stubs del servicio. Al compilar, el código generado aparece automáticamente y los otros dos módulos lo consumen como una dependencia más — nadie escribe ni versiona ese código a mano.
 
 **Decisiones del contrato:**
 
 | Decisión | Por qué |
 |---|---|
-| `int64 price_cents` en vez de `double` | Sin aritmética flotante en el camino crítico: los centavos son exactos |
-| `Status.REJECTED` como valor del enum | El backpressure es semántica del dominio, no un error de transporte gRPC |
-| `engine_latency_micros` en la respuesta | Permite contrastar el reloj interno del motor contra el del generador |
-| Un único servicio `MatchingIngest` | Router y shards implementan el mismo contrato: k6 puede apuntar a cualquiera |
+| Los precios se representan como enteros (centavos), no como número de punto flotante | Sin aritmética flotante en el camino crítico: los centavos quedan exactos, sin errores de redondeo |
+| "Rechazado" es un valor válido de la respuesta, no un error de transporte | El backpressure es semántica del dominio del negocio, no una falla de la comunicación |
+| La respuesta incluye la latencia interna medida por el motor | Permite contrastar el reloj interno del motor contra el del generador de carga |
+| Un único servicio de ingesta, implementado igual por el router y por cada shard | El generador de carga puede apuntar a cualquiera de los dos, para aislar el costo de cada uno |
 
----
+## 3. El motor de emparejamiento — el shard con un único escritor
 
-## 3. `services/matching-engine` — el shard LMAX
+**Qué es:** el corazón del experimento. Un proceso = una partición = un único hilo que escribe en los libros de órdenes de esa partición.
 
-**Qué es:** el corazón del experimento. Un proceso = una partición = un único hilo escritor.
+**Cómo se construyó**, en el orden en que fluye una orden:
 
-**Cómo se construyó**, clase por clase, en el orden en que fluye una orden:
+- **El ensamblaje del shard** construye el pipeline de procesamiento con sus cuatro decisiones de diseño: una fábrica que preasigna todas las entradas del buffer al arrancar (no se crea memoria nueva por cada orden en régimen), un tamaño de buffer fijo (potencia de dos), varios hilos de red publicando en paralelo pero un único hilo consumiendo, y una estrategia de espera para ese hilo cuando no hay trabajo. Esa estrategia es una decisión de diseño registrada como deuda técnica: la elegida es amigable con una máquina compartida entre varios procesos; hay alternativas que bajan aún más la latencia a costa de que ese hilo consuma un núcleo completo de forma constante.
+- **La entrada del buffer** es reciclable a propósito: se preasignan todas al arrancar y se reutilizan en cada ciclo, para que el camino crítico en régimen no genere basura de memoria — la presión del recolector de basura es, según el análisis de decisiones del proyecto, la causa más probable de colas largas inesperadas.
+- **El borde gRPC** publica en el buffer sin bloquear los hilos de red: si no hay espacio, responde con rechazo inmediato (la cola acotada actuando). Marca el instante de "arribo al motor", que define el inicio de la medición de latencia interna, y entrega la respuesta de forma asíncrona — ningún hilo de red queda esperando.
+- **El único escritor** es el único consumidor del buffer: procesa en el orden de llegada, sin locks. Mantiene un mapa de los libros de órdenes de sus símbolos, ejecuta el matching, registra la latencia en un histograma pensado para lecturas concurrentes (porque un hilo aparte reporta percentiles cada 10 segundos) y completa la respuesta.
+- **El libro de un símbolo** aplica prioridad precio-tiempo con estructuras de datos estándar: una estructura ordenada por precio (mejor precio primero) para cada lado (compra/venta), y dentro de cada nivel de precio, una cola en orden de llegada. El cruce recorre el lado contrario mientras el precio siga coincidiendo, llena total o parcialmente la orden, y deja el remanente en espera. No es segura para concurrencia a propósito: la exclusión mutua la garantiza el diseño (un solo hilo la toca), no un mecanismo de bloqueo.
 
-**`EngineMain`** — el ensamblaje. Construye el Disruptor con los cuatro parámetros que definen el patrón:
+## 4. El router de ingesta — sharding y cola acotada
 
-```java
-Disruptor<OrderSlot> disruptor = new Disruptor<>(
-        OrderSlot::new,          // fábrica: los slots se PREASIGNAN todos al inicio
-        ringSize,                // potencia de 2 (default 16384)
-        matcherThreadFactory,    // el hilo "matcher-shard-N"
-        ProducerType.MULTI,      // publican varios hilos gRPC…
-        new BlockingWaitStrategy()); // …pero consume UNO solo
-disruptor.handleEventsWith(new MatchingHandler(shardId, latencyRecorder));
-```
+**Qué es:** la puerta de entrada del sistema, y donde viven dos tácticas de diseño: el particionamiento por símbolo y la amortiguación de ráfagas con backpressure.
 
-`BlockingWaitStrategy` es deuda de decisión registrada en E01: es amable con la máquina compartida del PoC; `Yielding`/`BusySpin` bajan aún más la latencia a costa de quemar un núcleo por shard. Después levanta el servidor gRPC y un hilo que loguea percentiles del HdrHistogram cada 10 s.
+**Cómo se construyó:** el arranque lee la lista de shards disponibles (su orden define a qué índice de partición corresponde cada uno), crea un canal de comunicación y un cliente asíncrono por shard, y reporta periódicamente cuántas solicitudes están en vuelo y cuántas se han rechazado. El camino crítico de cada solicitud hace tres cosas en secuencia: intenta adquirir un cupo de una cola acotada (si está llena, rechaza de inmediato en vez de encolar sin límite), calcula el shard dueño del símbolo con una función de hash determinística, y reenvía la solicitud de forma asíncrona.
 
-**`OrderSlot`** — la entrada del ring. Mutable y reciclable a propósito: el Disruptor preasigna todos los slots al arrancar y los reutiliza, de modo que en régimen **el camino crítico no genera basura** (menos presión de GC, la causa #1 de cola larga según el análisis de decisiones). Se rellena con `set(...)` al publicar y se vacía con `clear()` al consumir.
+La función de hash de cadenas de texto del lenguaje es estable por especificación, así que el mismo símbolo siempre cae en el mismo shard. El router no guarda ningún estado — no conoce libros ni órdenes — y por eso, en un diseño de producción, podría replicarse horizontalmente sin coordinación adicional.
 
-**`IngestGrpcService`** — el borde. Su línea más importante es cómo publica:
+## 5. Empaquetado y topología
 
-```java
-try {
-    sequence = ringBuffer.tryNext();      // NO bloquea los hilos de gRPC
-} catch (InsufficientCapacityException backpressure) {
-    // ring lleno → REJECTED inmediato: la cola acotada actuando
-}
-```
+Una sola definición de contenedor, parametrizada por el servicio que se quiere construir, sirve para ambos servicios: una etapa de compilación y una etapa final liviana que solo copia el resultado ya compilado. Ahí también se configuran los parámetros de la máquina virtual del lenguaje, incluida la elección de un recolector de basura orientado a pausas muy cortas.
 
-También estampa el `t0 = System.nanoTime()` que define "arribo al motor" para la medida de ASR-02, y entrega la respuesta por un `CompletableFuture` que el handler completa — la respuesta gRPC es asíncrona, ningún hilo espera.
+La topología por defecto levanta el router más dos shards; un perfil alternativo agrega dos shards más sin tocar código — pasar de dos a cuatro particiones es cambiar qué perfil se levanta, no reescribir nada. El aislamiento de núcleos de CPU por contenedor está disponible en la configuración pero comentado, porque solo tiene efecto en un sistema operativo Linux nativo.
 
-**`MatchingHandler`** — el *single writer*. Único consumidor del ring: procesa en orden de llegada, sin locks. Mantiene un `HashMap<String, OrderBook>` (los libros de sus símbolos), ejecuta el matching, registra la latencia en un `Recorder` de HdrHistogram (thread-safe para que el hilo reportero lea histogramas por intervalo) y completa el futuro.
+## 6. El arnés de pruebas de carga
 
-**`OrderBook`** — el libro de un activo. Prioridad **precio-tiempo** con estructuras estándar del JDK:
+Un único script de generación de carga, parametrizado por variables de entorno, cubre todas las fases del experimento: cuál fase correr, una versión corta para verificar el montaje, la tasa pico a explorar, y contra qué destino apuntar (el router o un shard directo).
 
-```java
-// Compras: mejor precio = el más alto primero
-TreeMap<Long, ArrayDeque<Resting>> bids = new TreeMap<>(Comparator.reverseOrder());
-// Ventas: mejor precio = el más bajo primero
-TreeMap<Long, ArrayDeque<Resting>> asks = new TreeMap<>();
-```
+Las decisiones que hacen válida la medición: un **modelo abierto de llegada** (la carga es una tasa objetivo, no un número fijo de clientes esperando turno — el modelo cerrado subestima los percentiles bajo saturación), **umbrales como criterio ejecutable** (la corrida falla en vivo si el p95 supera el límite o si aparece algún rechazo en las fases oficiales), y un contador propio de rechazos por backpressure que convierte la señal de esa táctica de diseño en una métrica de primera clase, no en una suposición.
 
-El `TreeMap` da los niveles de precio ordenados; el `ArrayDeque` da el orden de llegada dentro del nivel (FIFO). `match()` recorre el lado opuesto mientras el precio cruce, llena parcial o totalmente, y deja el remanente en reposo. **No es thread-safe a propósito**: la exclusión mutua la garantiza el diseño (un solo hilo lo toca), no los locks.
+Un orquestador de un solo comando encadena: levantar una topología limpia, correr cada fase en orden, apagar todo, y dejar tanto la salida cruda como un resumen estructurado de cada fase archivados por corrida. Imprime una tabla final y **termina con un código de error si alguna fase oficial incumple su criterio** — por eso sirve tal cual como puerta de validación automática.
 
----
+## 7. La interfaz operativa del proyecto
 
-## 4. `services/ingest-router` — sharding y cola acotada
+Todo el ciclo de vida del proyecto —compilar, levantar cada topología, correr cada fase individual, explorar el punto de quiebre, comparar configuraciones de sharding, correr el ciclo completo del experimento, previsualizar la documentación— está expuesto como comandos autodocumentados. La convención de fondo: ningún paso que se repite se ejecuta "a mano" — se vuelve un comando reproducible por cualquier integrante del equipo o por un sistema de integración continua.
 
-**Qué es:** la puerta de entrada del sistema y el materializador de dos tácticas: particionamiento por activo y amortiguación con backpressure.
+## 8. El sitio de documentación
 
-**Cómo se construyó:** dos clases.
+Generado con un motor de sitios estáticos sobre un tema de documentación con navegación lateral, búsqueda integrada y renderizado nativo de diagramas — se publica automáticamente en cada cambio a la rama principal desde la carpeta de documentación. La página de evidencia de corridas es la que se referencia como evidencia externa del experimento.
 
-**`RouterMain`** lee `SHARDS` (lista `host:puerto` — **el orden define el índice de sharding**), crea un `ManagedChannel` + stub asíncrono por shard, y reporta cada 10 s las solicitudes en vuelo y los rechazos acumulados.
-
-**`RouterService`** concentra el camino crítico en tres movimientos:
-
-```java
-if (!inFlight.tryAcquire()) {                    // 1. cola acotada (Semaphore):
-    /* REJECTED inmediato */                     //    llena → rechazar, nunca encolar sin límite
-}
-int shard = Math.floorMod(request.getSymbol().hashCode(), shardStubs.size()); // 2. sharding determinístico
-shardStubs.get(shard).submitOrder(request, /* 3. relevo asíncrono de la respuesta */);
-```
-
-`String.hashCode` es estable por especificación de Java, así que el mismo símbolo siempre cae en el mismo shard. El router es **sin estado** — no conoce libros ni órdenes — y por eso en el diseño real puede replicarse horizontalmente.
-
----
-
-## 5. `deploy/` — empaquetado y topología
-
-**`Dockerfile`** — una sola definición multi-etapa construye ambos servicios, parametrizada con `--build-arg SERVICE=...`: la etapa 1 (imagen `gradle:8.14-jdk21`) corre `installDist` del módulo pedido; la etapa 2 copia solo la distribución sobre un JRE 21 liviano. Ahí viven también los flags de la JVM: `-XX:+UseZGC -XX:+ZGenerational` (pausas de GC sub-milisegundo, D-02).
-
-**`docker-compose.yml`** — la topología: `ingest-router` (`:8080`) + `matching-shard-0/1`. Los shards 2 y 3 existen bajo el **perfil `n4`**, y la lista `SHARDS` del router es interpolable (`${SHARDS:-...}`): pasar de N=2 a N=4 no toca código ni archivos, es `make up-n4`. Los `cpuset` de aislamiento por núcleo están comentados porque solo aplican en hosts Linux.
-
----
-
-## 6. `load/` — el arnés de pruebas
-
-**`k6/poc.js`** — un solo script parametrizado por variables de entorno cubre todas las fases del experimento:
-
-| Variable | Efecto |
-|---|---|
-| `PHASE=f1\|f2\|f4` | Baseline constante · rampa+pico+retorno · partición caliente (1 símbolo, sin thresholds) |
-| `SMOKE=1` | Versión corta (~1–5 min) del mismo perfil |
-| `PEAK=n` | Tasa pico libre (default 84/s) — así se construyó la exploración del techo |
-| `TARGET=host:puerto` | Apuntar a otro router o directo a un shard |
-
-Las decisiones de construcción que hacen válida la medición: **modelo abierto de llegada** (`constant/ramping-arrival-rate` — la carga es una tasa objetivo, no N usuarios esperando; el modelo cerrado subestima percentiles bajo saturación por *coordinated omission*), **thresholds como criterio ejecutable** (`p(95)<200` y `count==0` de rechazos fallan la corrida en vivo), y el contador propio `orders_rejected_backpressure` que convierte la señal de la táctica de amortiguación en métrica de primera clase.
-
-**`run-e2e.sh`** — el orquestador de un solo comando: topología limpia → F1 → F2+F3 → F4 → F4-explore (250/500/1000) → down. Cada fase deja su salida cruda (`.txt`) y su resumen (`--summary-export` JSON) en `load/k6/results/<timestamp>-<modo>/`, imprime una tabla final y **sale con código de error si una fase oficial incumple** — por eso sirve tal cual como puerta de CI. Se invoca vía `make e2e` (oficial) o `make e2e-smoke` (regresión de ~25 min tras cada cambio de implementación).
-
----
-
-## 7. `Makefile` — la interfaz operativa
-
-Todo el ciclo de vida en targets autodocumentados (`make help`): build Gradle, topologías N=2/N=4, fases individuales, exploración, comparación de sharding, ciclo E2E y previsualización de docs. La convención de construcción: **ningún comando del proyecto se ejecuta "a mano"** — si un paso se repite, se vuelve target. Eso es lo que hace las corridas reproducibles por cualquier integrante y por CI.
-
----
-
-## 8. `docs/` — el sitio de documentación
-
-Jekyll sobre GitHub Pages con el tema `just-the-docs` (vía `remote_theme`): navegación lateral, búsqueda integrada y render nativo de los diagramas Mermaid. Se publica automáticamente en cada push a `main` desde la carpeta `docs/` — la página de [Evidencia de corridas](evidencia-corridas.html) es la evidencia externa que enlaza la pestaña Experiments de Helix. `make docs-serve` la previsualiza en local.
-
----
-
-## Cómo encaja todo (resumen de una línea por pieza)
+## Cómo encaja todo
 
 | Componente | Construido con | Su única responsabilidad |
 |---|---|---|
-| Monorepo raíz | Gradle 8.14 + toolchain 21 + catálogo | Convenciones y versiones únicas |
-| `common-proto` | Protobuf + protoc-gen-grpc-java | El contrato; stubs generados, nunca escritos |
-| `matching-engine` | Disruptor 4 + gRPC + HdrHistogram | Un shard: ring → single writer → libro en memoria |
-| `ingest-router` | gRPC + `Semaphore` | Sharding determinístico y cola acotada |
-| `deploy/` | Docker multi-etapa + compose con perfiles | Topología N=2/N=4 sin tocar código |
-| `load/` | k6 (modelo abierto) + bash | Las fases del experimento como código, con veredicto automático |
-| `Makefile` | make autodocumentado | Toda operación es un target reproducible |
-| `docs/` | Jekyll + just-the-docs | Documentación y evidencia publicadas en cada push |
+| Monorepo raíz | Sistema de construcción + catálogo de versiones centralizado | Convenciones y versiones únicas para todo el proyecto |
+| Contrato compartido | Protobuf + generación automática de stubs gRPC | El contrato; el código se genera, nunca se escribe a mano |
+| Motor de emparejamiento | Buffer circular de alto rendimiento + gRPC + histogramas de latencia | Un shard: buffer → único escritor → libro en memoria |
+| Router de ingesta | gRPC + cola acotada con semáforo | Sharding determinístico y backpressure |
+| Empaquetado y despliegue | Contenedores multi-etapa + orquestación con perfiles | Topología de N=2 o N=4 particiones sin tocar código |
+| Arnés de carga | Generador con modelo abierto de llegada + orquestación en script | Las fases del experimento como código, con veredicto automático |
+| Interfaz operativa | Comandos autodocumentados | Toda operación es reproducible por cualquiera |
+| Documentación | Generador de sitio estático con navegación y diagramas | Documentación y evidencia publicadas en cada cambio |
+
+---
+
+*¿Quieres las versiones exactas de cada herramienta, los fragmentos de código de cada clase y el detalle línea por línea de cada decisión? Eso está en la versión técnica: [Construcción de componentes](construccion-componentes.html).*

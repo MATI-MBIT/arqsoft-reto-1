@@ -5,7 +5,7 @@ nav_order: 2.5
 
 # El experimento
 
-Este proyecto construye y prueba el motor de emparejamiento de una bolsa de valores: el servicio que recibe órdenes de compra y venta de acciones por gRPC y decide cuándo una orden de compra y una de venta coinciden en precio y cierran un trato. Este documento resume la misma información que la ficha técnica completa —[Experimento E01](experimento-e01.html)— con menos detalle de implementación (sin fórmulas derivadas, sin código, sin líneas de archivo), pensado para un equipo técnico que no conoce todavía este sistema en particular.
+Este proyecto construye y prueba el motor de emparejamiento de una bolsa de valores: el servicio que recibe órdenes de compra y venta de acciones por gRPC y decide cuándo una orden de compra y una de venta coinciden en precio y cierran un trato. Este documento resume la misma información que la ficha técnica completa —[Experimento E01](experimento-e01.html)— con menos detalle de implementación. 
 
 ## El sistema, en una imagen
 

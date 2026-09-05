@@ -139,22 +139,40 @@ No es una ineficiencia: es aritmética. **Repartir la carga reduce la espera, nu
 
 > **Corolario:** ninguna cantidad de particiones permite que una orden que cuesta 200 ms cumpla un contrato de 200 ms. El particionamiento es la herramienta contra la **espera**, no contra el **costo por orden**.
 
-## El motor no se quiebra: topa
+## El techo de una partición, y hasta dónde se puede medir
 
 Se le pidió a una sola partición 250, 500 y 1.000 órdenes por segundo, con todo el tráfico en un activo.
 
-| Tasa pedida | **Tasa lograda** | p95 | espera p95 | Órdenes que el generador no pudo emitir |
-|---|---|---|---|---|
-| 84/s | 84/s | 152,4 ms | 141,2 ms | 0 |
-| 250/s | **119/s** | 7,12 s | 7,11 s | 15.382 |
-| 500/s | **121/s** | 7,13 s | 7,13 s | 48.748 |
-| 1.000/s | **122/s** | 7,15 s | 7,15 s | 116.032 |
+| Tasa pedida | **Tasa lograda** | Órdenes que el generador no pudo emitir |
+|---|---|---|
+| 84/s | 84/s | 0 |
+| 250/s | **119/s** | 15.382 |
+| 500/s | **121/s** | 48.748 |
+| 1.000/s | **122/s** | 116.032 |
 
-Pedir cuatro veces más produce **exactamente el mismo resultado**. Pasado el techo, la tasa que se pide deja de ser un parámetro del sistema: solo cambia cuántas órdenes se quedan sin entrar.
+> **El techo de una partición es de unas 120 órdenes por segundo.** No es una sorpresa: con un costo medio de 8 ms y un solo escritor, la aritmética predice `1/S` = 125. El diseño entrega entre el **95 y el 98 %** de su techo teórico. Pedir cuatro veces más no produce más trabajo hecho: produce cuatro veces más órdenes que se quedan fuera.
 
-Y ese techo no es una sorpresa: con un costo medio de 8 ms por orden y un solo escritor, la aritmética predice `1/S` = **125 órdenes/s**. Medido: **119 a 122**. El diseño de único escritor entrega entre el **95 y el 98 %** de su techo teórico, y ese techo es toda la capacidad que hay.
+**La latencia de estas tres corridas no se puede publicar, y por qué importa.** Las tres dieron un p95 de 7,12, 7,13 y 7,15 s — prácticamente idénticos. Esa coincidencia parece un hallazgo sobre el motor y no lo es: es del generador.
 
-> **La protección por rechazo nunca se activó.** Con la fila del router en 10.000 solicitudes, ni siquiera a 1.000 órdenes/s hubo un solo rechazo. El sistema **se degrada por latencia mucho antes que por rechazo**, así que ese criterio, por sí solo, no protege de nada.
+k6 dispone de **800 clientes virtuales** en esta fase. Cuando el motor topa, los 800 quedan ocupados esperando respuesta y toda orden nueva se convierte en una iteración descartada. A partir de ahí el modelo abierto **degenera en uno cerrado de 800 usuarios**, y la latencia queda fijada por la ley de Little:
+
+```
+latencia = solicitudes en vuelo / throughput = 800 / 120 = 6,7 s
+```
+
+| Tasa pedida | 800 ÷ tasa lograda | p50 medido | desvío |
+|---|---|---|---|
+| 250/s | 6,71 s | 6,18 s | −7,8 % |
+| 500/s | 6,60 s | 6,26 s | −5,2 % |
+| 1.000/s | 6,54 s | 6,32 s | −3,4 % |
+
+La predicción acierta dentro del 8 %, y lo que sobra lo explica la rampa inicial, que todavía no satura. Con 8.000 clientes virtuales el mismo motor habría dado ~67 s; con 80.000, ~670 s. **El número mide el pool del generador, no el sistema.** Pasado el techo la latencia crece sin cota, y ningún pool finito la mide.
+
+Es la **omisión coordinada** —el sesgo que aparece cuando el generador deja de pedir porque el sistema se atascó— colándose de vuelta por la puerta de atrás justo cuando el modelo abierto se queda sin clientes. Por eso las iteraciones descartadas invalidan una corrida, y por eso estas tres sirven para leer **throughput** y nunca latencia.
+
+> **Y esto invalida otra cosa que esta página afirmaba.** Decía que la protección por rechazo «nunca se activó ni siquiera a 1.000 órdenes/s», y concluía que el sistema se degrada por latencia mucho antes que por rechazo. Con 800 solicitudes en vuelo como techo duro, ni el anillo de 16.384 casillas ni la fila de 10.000 del router podían acercarse a su límite. **El freno no se activó porque nunca hubo con qué activarlo.** Si protege o no sigue sin probarse.
+
+**Las fases oficiales no están tocadas por esto.** F1 usó como mucho 14 clientes virtuales, F2 llegó a 29 y F4 a 43, contra techos de 320 y 800. Ninguna se acercó, ninguna descartó una sola iteración, y sus latencias sí son del sistema.
 
 ## ¿Depende el resultado de cómo se distribuye el costo?
 
@@ -237,6 +255,8 @@ Un rango del **14 % de la media**, es decir **±7 %**. De ahí sale la regla de 
 - **Una sola máquina, por bucle local.** No representa la red de 1 Gbps del banco de pruebas del reto ni la alta disponibilidad. **Valida el patrón, no el dimensionamiento.**
 - **Una repetición por punto.** Con un piso de ruido de ±7 %, las diferencias pequeñas de los estudios no son concluyentes; solo lo son los efectos grandes, que es como están reportados aquí.
 - **El techo de 119–122 órdenes/s es el de este costo por orden**, no una constante del patrón. Con otro `S`, otro techo: `1/S`.
+- **La latencia por encima del techo no está medida.** El generador se queda sin clientes virtuales y lo que se observa es su pool dividido por el throughput, no el sistema. Medirla exigiría un generador que no se agote, y aun así crecería sin cota.
+- **El freno de entrada sigue sin probarse.** Con 800 solicitudes en vuelo como máximo, ni el anillo del motor ni la fila del router se acercaron a su límite en ninguna corrida. Que no se hayan activado no dice nada sobre si protegen.
 - **Los atascos del anfitrión están atribuidos por eliminación**, no medidos directamente.
 
 ## Cómo repetir todo esto

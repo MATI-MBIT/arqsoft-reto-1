@@ -186,7 +186,12 @@ for f in "$OUT"/*.txt; do
   p95="$(grep 'grpc_req_duration' "$f" | grep -o 'p(95)=[^ ]*' | head -1)"
   rej="$(k6_metric "$f" orders_rejected_backpressure)"
   drop="$(k6_metric "$f" dropped_iterations)"
-  printf "  %-18s %-16s rechazos=%s descartes=%s\n" "$n" "${p95:-sin dato}" "${rej:-0}" "${drop:-0}"
+  # Con descartes > 0 el generador se quedo sin VUs libres: el modelo abierto
+  # degenera en uno cerrado y la latencia pasa a ser (VUs en vuelo / throughput),
+  # que mide el pool del generador y no el sistema. El throughput sigue valiendo.
+  aviso=""
+  [ "${drop:-0}" != "0" ] && aviso="  <- LATENCIA NO PUBLICABLE (descartes: modelo cerrado de facto; leer solo throughput)"
+  printf "  %-18s %-16s rechazos=%s descartes=%s%s\n" "$n" "${p95:-sin dato}" "${rej:-0}" "${drop:-0}" "$aviso"
 done
 echo "  Salidas crudas (.txt) y resúmenes (.json) en: $OUT"
 echo "  Tablero con el ciclo completo: http://localhost:3000 (fuente: Prometheus en :9090)"

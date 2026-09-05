@@ -1,7 +1,7 @@
 {
   "uid": "e01-motor-emparejamiento",
   "title": "E01 · Motor de emparejamiento",
-  "description": "Un bloque por hipótesis: la apuesta, y debajo las corridas que la ponen a prueba. Verde es cumple, rojo es no cumple. El último bloque, plegado, trae el detalle en el tiempo de una corrida.",
+  "description": "Un bloque por hipótesis: la apuesta arriba, y debajo las barras que dicen si cumple y las líneas que dicen cómo se comportó mientras corría.",
   "tags": [
     "e01",
     "arqsoft"
@@ -9,7 +9,7 @@
   "timezone": "browser",
   "editable": true,
   "schemaVersion": 39,
-  "version": 4,
+  "version": 5,
   "refresh": "30s",
   "time": {
     "from": "now-24h",
@@ -19,7 +19,7 @@
     "list": [
       {
         "name": "corrida",
-        "label": "Corrida (solo para el detalle de abajo)",
+        "label": "Corrida (solo para la procedencia de abajo)",
         "type": "custom",
         "query": "OFICIAL · régimen · 17 órd/s · 12 min : of-f1-n2,OFICIAL · pico 5× · 84 órd/s · 30 min : of-f2-n2,OFICIAL · todo el pico en UN activo : of-f4-n2,¿Cuántas bastan? · 1 partición · 84 órd/s : min-n1,¿Cuántas bastan? · 2 particiones · 84 órd/s : min-n2,¿Cuántas bastan? · 4 particiones · 84 órd/s : min-n4,Quiebre · 1 partición · 90 órd/s : q-n1-090,Quiebre · 1 partición · 100 órd/s : q-n1-100,Quiebre · 1 partición · 110 órd/s : q-n1-110,Quiebre · 1 partición · 120 órd/s : q-n1-120,Quiebre · 2 particiones · 180 órd/s : q-n2-180,Quiebre · 2 particiones · 200 órd/s : q-n2-200,Quiebre · 2 particiones · 220 órd/s : q-n2-220,Quiebre · 2 particiones · 240 órd/s : q-n2-240,Quiebre · 4 particiones · 360 órd/s : q-n4-360,Quiebre · 4 particiones · 400 órd/s : q-n4-400,Quiebre · 4 particiones · 440 órd/s : q-n4-440,Quiebre · 4 particiones · 480 órd/s : q-n4-480,Activo caliente · 84 órd/s en UN activo : cal-084,Activo caliente · 100 órd/s en UN activo : cal-100,Activo caliente · 110 órd/s en UN activo : cal-110,Activo caliente · 120 órd/s en UN activo : cal-120,Bitácora · apagada : bit-off,Bitácora · en paralelo : bit-paralelo,Bitácora · en serie (camino crítico) : bit-serie,CPU · sin límite : cpu-libre,CPU · 2 núcleos : cpu-2,CPU · 1 núcleo : cpu-1,CPU · medio núcleo : cpu-05,Presupuesto · orden de 5 ms : pre-05,Presupuesto · orden de 10 ms : pre-10,Presupuesto · orden de 12 ms : pre-12,Presupuesto · orden de 13 ms : pre-13,Presupuesto · orden de 15 ms : pre-15,Presupuesto caliente · orden de 5 ms : cpre-05,Presupuesto caliente · orden de 8 ms : cpre-08,Presupuesto caliente · orden de 9 ms : cpre-09,Presupuesto caliente · orden de 10 ms : cpre-10,Forma · lognormal (cola sin tope) : forma-lognormal,Atascos · grabación de la JVM : jfr-f2",
         "multi": false,
@@ -49,14 +49,14 @@
       "type": "text",
       "title": "La apuesta",
       "gridPos": {
-        "h": 9,
-        "w": 6,
+        "h": 5,
+        "w": 24,
         "x": 0,
         "y": 1
       },
       "options": {
         "mode": "markdown",
-        "content": "\n**Si** el motor procesa las órdenes una por una, en memoria y sin esperar a nadie\n—ni base de datos, ni candados, ni otros hilos—, **entonces** responde a tiempo\nen operación normal.\n\n**Cómo leerlo.** Verde = por debajo de los 200 ms del contrato. Rojo = no cumple.\n\nLa cláusula extra: el registro durable va **fuera** del camino crítico. Se prueba\ncomparando las tres disposiciones de la bitácora. Ahí se mira la **mediana del\nmotor**, no el p95: el efecto es de medio milisegundo y el p95 no lo distingue\ndel ruido.\n"
+        "content": "\n**Si** el motor procesa las órdenes una por una, en memoria y sin esperar a nadie —ni base de datos, ni candados, ni otros hilos—, **entonces** responde a tiempo en operación normal. Con una cláusula: el registro durable va **fuera** del camino crítico.\n\n**Cómo leer este bloque.** Las barras dicen *si cumple* — verde por debajo de los 200 ms del contrato, rojo por encima. Las líneas dicen *cómo se comportó mientras corría*: si la latencia se mantuvo plana o se fue degradando, y si el tiempo se fue esperando en fila o trabajando. · En la bitácora se mira la **mediana del motor**, no el p95: el efecto es de medio milisegundo y el p95 no lo distingue del ruido.\n"
       }
     },
     {
@@ -66,12 +66,12 @@
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "Las tres fases contractuales. Verde: cumple. Rojo: no.",
+      "description": "Las tres fases contractuales.",
       "gridPos": {
         "h": 9,
-        "w": 9,
-        "x": 6,
-        "y": 1
+        "w": 8,
+        "x": 0,
+        "y": 6
       },
       "targets": [
         {
@@ -160,9 +160,9 @@
       "description": "En paralelo la bitácora corre junto al cruce y el cliente no la paga. En serie va delante, y la orden espera al disco.",
       "gridPos": {
         "h": 9,
-        "w": 9,
-        "x": 15,
-        "y": 1
+        "w": 8,
+        "x": 8,
+        "y": 6
       },
       "targets": [
         {
@@ -238,6 +238,186 @@
       }
     },
     {
+      "type": "timeseries",
+      "title": "Cómo evolucionó la latencia en cada fase",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-e01"
+      },
+      "description": "Cada fase es un episodio propio en la línea de tiempo. Una latencia plana durante media hora dice más que un percentil: significa que el sistema no se degrada con el tiempo.",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"of-f1-n2\",scenario!=\"calentamiento\"}",
+          "legendFormat": "régimen · 17 órd/s",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"of-f2-n2\",scenario!=\"calentamiento\"}",
+          "legendFormat": "pico 5× · 84 órd/s",
+          "refId": "B",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"of-f4-n2\",scenario!=\"calentamiento\"}",
+          "legendFormat": "todo en UN activo",
+          "refId": "C",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "¿El tiempo se fue esperando en fila, o trabajando? (fases oficiales)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-e01"
+      },
+      "description": "Apiladas, las dos suman la latencia interna. Si domina la ESPERA hay que agregar particiones; si domina el TRABAJO hay que abaratar la orden.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(engine_window_wait_micros{quantile=\"0.95\",corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2\"})",
+          "legendFormat": "esperando en fila",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(engine_window_service_micros{quantile=\"0.95\",corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2\"})",
+          "legendFormat": "trabajo real",
+          "refId": "B",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "µs",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "type": "row",
       "title": "H2 · Si las órdenes se reparten entre varios motores, el sistema aguanta el pico",
       "collapsed": false,
@@ -245,7 +425,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 10
+        "y": 23
       },
       "panels": []
     },
@@ -253,14 +433,14 @@
       "type": "text",
       "title": "La apuesta",
       "gridPos": {
-        "h": 9,
-        "w": 6,
+        "h": 5,
+        "w": 24,
         "x": 0,
-        "y": 11
+        "y": 24
       },
       "options": {
         "mode": "markdown",
-        "content": "\n**Si** las órdenes se reparten entre varios motores independientes —cada activo\nsiempre en el mismo motor—, **entonces** el sistema aguanta el pico de mercado\nsin dejar de responder a tiempo.\n\nLa ficha exige además decir **cuántos motores bastan**: ese número no se supone,\nse mide.\n\n**Cómo leerlo.** El primer panel busca el mínimo que cumple. El segundo pregunta\nsi una partición cabe en un núcleo, que es lo que el patrón implica. El tercero\nbusca **a qué tasa deja de cumplir** cada topología: si la capacidad escala,\nel quiebre debería moverse en proporción al número de particiones.\n"
+        "content": "\n**Si** las órdenes se reparten entre varios motores independientes —cada activo siempre en el mismo motor—, **entonces** el sistema aguanta el pico de mercado sin dejar de responder a tiempo. La ficha exige además decir **cuántos motores bastan**: ese número no se supone, se mide.\n\n**Cómo leer este bloque.** La primera barra busca el mínimo que cumple; la segunda pregunta si una partición cabe en un núcleo, que es lo que el patrón implica. El barrido de abajo busca **a qué tasa deja de cumplir** cada topología: si la capacidad escala, el quiebre debería moverse en proporción —el doble con dos particiones, el cuádruple con cuatro—. Al lado, cómo se degrada cada una mientras sube la carga.\n"
       }
     },
     {
@@ -270,12 +450,12 @@
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "La misma carga de 84 órd/s repartida entre 1, 2 y 4 particiones. La menor que quede verde es el mínimo que satisface el contrato.",
+      "description": "La misma carga de 84 órd/s repartida entre 1, 2 y 4 particiones.",
       "gridPos": {
         "h": 9,
-        "w": 9,
-        "x": 6,
-        "y": 11
+        "w": 8,
+        "x": 0,
+        "y": 29
       },
       "targets": [
         {
@@ -361,12 +541,12 @@
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "El prototipo corre sobre 14 CPU, cosa que ningún despliegue real hace. Aquí se confina cada partición y se mide qué cuesta.",
+      "description": "El prototipo corre sobre 14 CPU, cosa que ningún despliegue real hace.",
       "gridPos": {
         "h": 9,
-        "w": 9,
-        "x": 15,
-        "y": 11
+        "w": 8,
+        "x": 8,
+        "y": 29
       },
       "targets": [
         {
@@ -458,18 +638,88 @@
       }
     },
     {
+      "type": "timeseries",
+      "title": "¿Se reparte parejo entre particiones?",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-e01"
+      },
+      "description": "Órdenes por segundo que resuelve cada partición. Con los 36 activos del conjunto el reparto es 18/18 con dos y 9/9/9/9 con cuatro. Un desbalance aquí se disfrazaría de problema de latencia.",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 29
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "rate(engine_orders_total{corrida=~\"min-n1|min-n2|min-n4|of-f1-n2|of-f2-n2|of-f4-n2\"}[1m])",
+          "legendFormat": "partición {{shard}}",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "type": "bargauge",
       "title": "¿A qué tasa deja de cumplir, según cuántas particiones haya?",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "El punto de quiebre es la primera tasa que se pone en rojo. Si la capacidad escala agregando particiones, ese punto debería moverse en proporción: el doble con dos, el cuádruple con cuatro. La barra satura arriba de 0,5 s, pero el número siempre se ve.",
+      "description": "El punto de quiebre es la primera tasa en rojo. La barra satura arriba de 0,5 s, pero el número siempre se ve.",
       "gridPos": {
         "h": 14,
-        "w": 24,
+        "w": 12,
         "x": 0,
-        "y": 20
+        "y": 38
       },
       "targets": [
         {
@@ -657,6 +907,212 @@
       }
     },
     {
+      "type": "timeseries",
+      "title": "Cómo se degrada cada topología al subir la carga",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-e01"
+      },
+      "description": "Cada corrida del barrido, en su propio momento. Lo que se busca no es el valor final sino la FORMA: mientras hay holgura la línea es plana; cerca del techo se dispara.",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 38
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n1-090\",scenario!=\"calentamiento\"}",
+          "legendFormat": "90 órd/s",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n1-100\",scenario!=\"calentamiento\"}",
+          "legendFormat": "100 órd/s",
+          "refId": "B",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n1-110\",scenario!=\"calentamiento\"}",
+          "legendFormat": "110 órd/s",
+          "refId": "C",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n1-120\",scenario!=\"calentamiento\"}",
+          "legendFormat": "120 órd/s",
+          "refId": "D",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n2-180\",scenario!=\"calentamiento\"}",
+          "legendFormat": "180 órd/s",
+          "refId": "E",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n2-200\",scenario!=\"calentamiento\"}",
+          "legendFormat": "200 órd/s",
+          "refId": "F",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n2-220\",scenario!=\"calentamiento\"}",
+          "legendFormat": "220 órd/s",
+          "refId": "G",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n2-240\",scenario!=\"calentamiento\"}",
+          "legendFormat": "240 órd/s",
+          "refId": "H",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n4-360\",scenario!=\"calentamiento\"}",
+          "legendFormat": "360 órd/s",
+          "refId": "I",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n4-400\",scenario!=\"calentamiento\"}",
+          "legendFormat": "400 órd/s",
+          "refId": "J",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n4-440\",scenario!=\"calentamiento\"}",
+          "legendFormat": "440 órd/s",
+          "refId": "K",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n4-480\",scenario!=\"calentamiento\"}",
+          "legendFormat": "480 órd/s",
+          "refId": "L",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "type": "row",
       "title": "H2b · Si todo el pico cae en un solo activo, el sistema deja de responder a tiempo",
       "collapsed": false,
@@ -664,7 +1120,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 52
       },
       "panels": []
     },
@@ -672,14 +1128,14 @@
       "type": "text",
       "title": "La apuesta",
       "gridPos": {
-        "h": 9,
-        "w": 6,
+        "h": 5,
+        "w": 24,
         "x": 0,
-        "y": 35
+        "y": 53
       },
       "options": {
         "mode": "markdown",
-        "content": "\n**Si** todo el pico se concentra en un solo activo, **entonces** el sistema deja\nde responder a tiempo **antes** de llegar al pico completo.\n\nEs el caso donde repartir no ayuda: las órdenes de un activo las atiende siempre\nel mismo motor y los demás no pueden echarle una mano.\n\n**Cómo leerlo.** Si la barra de 84 órd/s —el pico contractual— sale **verde**,\nla apuesta queda **refutada**: la partición caliente aguanta lo que se predijo\nque no aguantaría. Y una hipótesis refutada también es un resultado.\n"
+        "content": "\n**Si** todo el pico se concentra en un solo activo, **entonces** el sistema deja de responder a tiempo **antes** de llegar al pico completo. Es el caso donde repartir no ayuda: las órdenes de un activo las atiende siempre el mismo motor y los demás no pueden echarle una mano.\n\n**Cómo leer este bloque.** Si la barra de 84 órd/s —el pico contractual— sale **verde**, la apuesta queda **refutada**: la partición caliente aguanta lo que se predijo que no aguantaría, y una hipótesis refutada también es un resultado. A la derecha, la cola formándose: es el mecanismo del quiebre, no su veredicto.\n"
       }
     },
     {
@@ -689,12 +1145,12 @@
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "Todo el tráfico sobre un solo activo, subiendo la tasa. 84 órd/s es el pico contractual; el resto explora dónde está el quiebre.",
+      "description": "Todo el tráfico sobre un solo activo, subiendo la tasa.",
       "gridPos": {
-        "h": 9,
-        "w": 18,
-        "x": 6,
-        "y": 35
+        "h": 10,
+        "w": 8,
+        "x": 0,
+        "y": 58
       },
       "targets": [
         {
@@ -786,6 +1242,194 @@
       }
     },
     {
+      "type": "timeseries",
+      "title": "La cola formándose sobre la partición caliente",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-e01"
+      },
+      "description": "El trabajo real se mantiene plano —no depende de la carga— mientras la espera crece. Esa separación ES la saturación.",
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 8,
+        "y": 58
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(engine_window_wait_micros{quantile=\"0.95\",corrida=~\"cal-084|cal-100|cal-110|cal-120\"})",
+          "legendFormat": "esperando en fila",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(engine_window_service_micros{quantile=\"0.95\",corrida=~\"cal-084|cal-100|cal-110|cal-120\"})",
+          "legendFormat": "trabajo real",
+          "refId": "B",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "µs",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "¿El generador logró sostener la tasa que pidió?",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-e01"
+      },
+      "description": "Cuando la tasa lograda se despega de la pedida, el motor topó. A partir de ahí la latencia mide el límite del generador y no el del sistema: deja de ser publicable.",
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 16,
+        "y": 58
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "sum(rate(k6_iterations_total{corrida=\"cal-084\"}[1m]))",
+          "legendFormat": "84 órd/s",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "sum(rate(k6_iterations_total{corrida=\"cal-100\"}[1m]))",
+          "legendFormat": "100 órd/s",
+          "refId": "B",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "sum(rate(k6_iterations_total{corrida=\"cal-110\"}[1m]))",
+          "legendFormat": "110 órd/s",
+          "refId": "C",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "sum(rate(k6_iterations_total{corrida=\"cal-120\"}[1m]))",
+          "legendFormat": "120 órd/s",
+          "refId": "D",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "type": "row",
       "title": "El entregable · ¿Cuánto puede costar procesar una orden?",
       "collapsed": false,
@@ -793,22 +1437,22 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 44
+        "y": 68
       },
       "panels": []
     },
     {
       "type": "text",
-      "title": "Por qué esto y no un percentil",
+      "title": "Por qué esto, y no un percentil",
       "gridPos": {
-        "h": 9,
-        "w": 6,
+        "h": 6,
+        "w": 24,
         "x": 0,
-        "y": 45
+        "y": 69
       },
       "options": {
         "mode": "markdown",
-        "content": "\nEl prototipo **no implementa la lógica de negocio** —validar, verificar riesgo y\nsaldos, calcular comisiones, generar el trato—. Como el motor procesa de a una,\nese costo se serializa y fija el techo: **techo = 1 ÷ costo por orden**.\n\nPor eso el entregable no es una cifra de latencia sino un **presupuesto**: *el\ndiseño cumple el contrato mientras procesar una orden cueste menos de X*. Cuando\nla lógica real exista, se mide su costo y se compara contra X.\n\n**Cómo leerlo.** El presupuesto es el último costo que queda en verde.\n"
+        "content": "\nEl prototipo **no implementa la lógica de negocio** —validar, verificar riesgo y saldos, calcular comisiones, generar el trato—. Como el motor procesa de a una, ese costo se serializa y fija el techo: **techo = 1 ÷ costo por orden**. Medir la capacidad con el cruce de juguete del prototipo mediría una estructura de datos, no un motor de bolsa.\n\nPor eso el entregable no es una cifra de latencia sino un **presupuesto**: *el diseño cumple el contrato mientras procesar una orden cueste menos de X*. Cuando la lógica real exista, se mide su costo y se compara contra X — la afirmación es verificable desde hoy.\n\n**Cómo leer este bloque.** El presupuesto es el último costo que queda en verde. Y a la derecha, el mecanismo: el trabajo sigue al costo declarado, pero lo que dispara la latencia es la **espera**.\n"
       }
     },
     {
@@ -821,9 +1465,9 @@
       "description": "Cuánto puede costar una orden sin romper el contrato.",
       "gridPos": {
         "h": 9,
-        "w": 9,
-        "x": 6,
-        "y": 45
+        "w": 8,
+        "x": 0,
+        "y": 75
       },
       "targets": [
         {
@@ -936,9 +1580,9 @@
       "description": "El mismo barrido en el peor caso.",
       "gridPos": {
         "h": 9,
-        "w": 9,
-        "x": 15,
-        "y": 45
+        "w": 8,
+        "x": 8,
+        "y": 75
       },
       "targets": [
         {
@@ -1030,192 +1674,111 @@
       }
     },
     {
+      "type": "timeseries",
+      "title": "El trabajo sigue al costo; la espera es la que explota",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-e01"
+      },
+      "description": "Al subir el costo por orden, el trabajo real sube en proporción y de forma predecible. La espera no: crece de golpe cuando la ocupación se acerca a uno. Repartir la carga ataca la espera; nada ataca al trabajo salvo abaratar la orden.",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 75
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(engine_window_wait_micros{quantile=\"0.95\",corrida=~\"pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10\"})",
+          "legendFormat": "esperando en fila",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(engine_window_service_micros{quantile=\"0.95\",corrida=~\"pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10\"})",
+          "legendFormat": "trabajo real",
+          "refId": "B",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "µs",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "type": "row",
-      "title": "Detalle de UNA corrida en el tiempo — desplegar y elegirla arriba",
+      "title": "Procedencia de UNA corrida — desplegar y elegirla arriba",
       "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 54
+        "y": 84
       },
       "panels": [
         {
-          "type": "timeseries",
-          "title": "Lo que espera el cliente, contra el límite de 200 ms",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "gridPos": {
-            "h": 9,
-            "w": 12,
-            "x": 0,
-            "y": 55
-          },
-          "description": "El calentamiento se dibuja aparte porque aporta tráfico y no cuenta para el veredicto.",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus-e01"
-              },
-              "expr": "k6_grpc_req_duration_p95{corrida=~\"$corrida\",scenario!=\"calentamiento\"}",
-              "legendFormat": "p95",
-              "refId": "A",
-              "editorMode": "code",
-              "range": true,
-              "instant": false
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus-e01"
-              },
-              "expr": "k6_grpc_req_duration_p99{corrida=~\"$corrida\",scenario!=\"calentamiento\"}",
-              "legendFormat": "p99",
-              "refId": "B",
-              "editorMode": "code",
-              "range": true,
-              "instant": false
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus-e01"
-              },
-              "expr": "k6_grpc_req_duration_p95{corrida=~\"$corrida\",scenario=\"calentamiento\"}",
-              "legendFormat": "calentamiento (no cuenta)",
-              "refId": "C",
-              "editorMode": "code",
-              "range": true,
-              "instant": false
-            }
-          ],
-          "options": {
-            "legend": {
-              "displayMode": "list",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "s",
-              "custom": {
-                "drawStyle": "line",
-                "lineWidth": 2,
-                "fillOpacity": 6,
-                "showPoints": "never",
-                "spanNulls": true,
-                "thresholdsStyle": {
-                  "mode": "dashed"
-                }
-              },
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "red",
-                    "value": 0.2
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          }
-        },
-        {
-          "type": "timeseries",
-          "title": "¿Se va el tiempo esperando, o trabajando?",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "gridPos": {
-            "h": 9,
-            "w": 12,
-            "x": 12,
-            "y": 55
-          },
-          "description": "Si crece la ESPERA, hay que agregar particiones: la orden hace fila. Si crece el TRABAJO, hay que abaratar la orden.",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus-e01"
-              },
-              "expr": "engine_window_wait_micros{quantile=\"0.95\",corrida=~\"$corrida\"}",
-              "legendFormat": "esperando en fila · partición {{shard}}",
-              "refId": "A",
-              "editorMode": "code",
-              "range": true,
-              "instant": false
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus-e01"
-              },
-              "expr": "engine_window_service_micros{quantile=\"0.95\",corrida=~\"$corrida\"}",
-              "legendFormat": "trabajo real · partición {{shard}}",
-              "refId": "B",
-              "editorMode": "code",
-              "range": true,
-              "instant": false
-            }
-          ],
-          "options": {
-            "legend": {
-              "displayMode": "list",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "µs",
-              "min": 0,
-              "custom": {
-                "drawStyle": "line",
-                "lineWidth": 2,
-                "fillOpacity": 10,
-                "showPoints": "never",
-                "spanNulls": true,
-                "stacking": {
-                  "mode": "normal",
-                  "group": "A"
-                }
-              }
-            },
-            "overrides": []
-          }
-        },
-        {
           "type": "table",
-          "title": "Con qué corrió",
+          "title": "Con qué corrió la corrida seleccionada",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
           "description": "Sin esto, dos corridas con resultados distintos son indistinguibles.",
           "gridPos": {
-            "h": 7,
+            "h": 8,
             "w": 24,
             "x": 0,
-            "y": 64
+            "y": 85
           },
           "targets": [
             {

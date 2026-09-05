@@ -31,7 +31,7 @@ y cada corrida deja escrito a cuál de ellas pone a prueba.
 
 ## Cómo está armado el experimento
 
-Antes de entrar en cada corrida, conviene ver la forma general. Hay tres piezas:
+Hay tres piezas:
 
 - **El plan** — una tabla de texto con las cuarenta corridas, una por fila. Dice
   *qué* se corre.

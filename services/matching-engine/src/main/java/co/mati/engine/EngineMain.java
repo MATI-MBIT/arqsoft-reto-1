@@ -31,6 +31,9 @@ import java.util.concurrent.atomic.LongAdder;
  *   BIZ_MICROS — costo medio por orden, en µs, del modelo sintético de lógica
  *                de negocio (0 o ausente = apagado; ver BusinessLogicModel)
  *   METRICS_PORT — puerto del endpoint /metrics que raspa Prometheus (default 9095)
+ *   RUN_ID     — identificador de la corrida. Viaja como etiqueta en todas las
+ *                métricas, para que el tablero pueda aislar UNA corrida en vez
+ *                de superponer cuarenta.
  */
 public final class EngineMain {
 
@@ -63,6 +66,7 @@ public final class EngineMain {
 
         BusinessLogicModel businessLogic = BusinessLogicModel.fromEnv(shardId);
         int metricsPort = Integer.parseInt(env("METRICS_PORT", "9095"));
+        String runId = env("RUN_ID", "sin-id");
         LongAdder rejectedOrders = new LongAdder();
 
         ThreadFactory matcherThreadFactory = r -> {
@@ -153,7 +157,7 @@ public final class EngineMain {
                 serviceCumulative.add(service);
                 journalCumulative.add(journalWindow);
                 exposicion.set(exponer(shardId, ringSize, businessLogic, journalMode,
-                        rejectedOrders.sum(), total, wait, service, journalWindow,
+                        rejectedOrders.sum(), runId, total, wait, service, journalWindow,
                         totalCumulative, waitCumulative, serviceCumulative));
             }
             if (total.getTotalCount() == 0) {
@@ -245,11 +249,15 @@ public final class EngineMain {
      * comparable cifra a cifra con k6.
      */
     private static String exponer(int shardId, int ringSize, BusinessLogicModel businessLogic,
-                                  JournalHandler.Mode journalMode, long rejected,
+                                  JournalHandler.Mode journalMode, long rejected, String runId,
                                   Histogram ventanaTotal, Histogram ventanaEspera,
                                   Histogram ventanaServicio, Histogram ventanaJournal,
                                   Histogram acumTotal, Histogram acumEspera, Histogram acumServicio) {
-        String shard = "shard=\"" + shardId + "\"";
+        // La corrida viaja como etiqueta en TODAS las metricas del motor. Sin
+        // ella, el tablero superpone cuarenta corridas en la misma grafica y no
+        // hay forma de leer ninguna: las series del motor se raspan, no las
+        // empuja k6, asi que no heredan sus etiquetas.
+        String shard = "shard=\"" + shardId + "\",corrida=\"" + runId + "\"";
         StringBuilder sb = new StringBuilder(4096);
 
         PrometheusEndpoint.ayuda(sb, "engine_operating_point_micros", "gauge",

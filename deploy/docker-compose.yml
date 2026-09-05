@@ -36,6 +36,9 @@ services:
       # Java Flight Recorder. Vacio = apagado. Se ANEXA a JAVA_OPTS (ver Dockerfile),
       # asi que no pisa ZGC. Lo enciende `make profile-jfr`.
       JFR_OPTS: "${JFR_OPTS:-}"
+      # Identificador de la corrida: viaja como etiqueta en las metricas del
+      # motor para que el tablero pueda aislar una sola.
+      RUN_ID: "${RUN_ID:-sin-id}"
     volumes:
       - journal-0:/var/lib/engine/journal
       - jfr-0:/var/lib/engine/jfr
@@ -69,6 +72,9 @@ services:
       # Java Flight Recorder. Vacio = apagado. Se ANEXA a JAVA_OPTS (ver Dockerfile),
       # asi que no pisa ZGC. Lo enciende `make profile-jfr`.
       JFR_OPTS: "${JFR_OPTS:-}"
+      # Identificador de la corrida: viaja como etiqueta en las metricas del
+      # motor para que el tablero pueda aislar una sola.
+      RUN_ID: "${RUN_ID:-sin-id}"
     volumes:
       - journal-1:/var/lib/engine/journal
       - jfr-1:/var/lib/engine/jfr
@@ -103,6 +109,9 @@ services:
       # Java Flight Recorder. Vacio = apagado. Se ANEXA a JAVA_OPTS (ver Dockerfile),
       # asi que no pisa ZGC. Lo enciende `make profile-jfr`.
       JFR_OPTS: "${JFR_OPTS:-}"
+      # Identificador de la corrida: viaja como etiqueta en las metricas del
+      # motor para que el tablero pueda aislar una sola.
+      RUN_ID: "${RUN_ID:-sin-id}"
     volumes:
       - journal-2:/var/lib/engine/journal
       - jfr-2:/var/lib/engine/jfr
@@ -137,6 +146,9 @@ services:
       # Java Flight Recorder. Vacio = apagado. Se ANEXA a JAVA_OPTS (ver Dockerfile),
       # asi que no pisa ZGC. Lo enciende `make profile-jfr`.
       JFR_OPTS: "${JFR_OPTS:-}"
+      # Identificador de la corrida: viaja como etiqueta en las metricas del
+      # motor para que el tablero pueda aislar una sola.
+      RUN_ID: "${RUN_ID:-sin-id}"
     volumes:
       - journal-3:/var/lib/engine/journal
       - jfr-3:/var/lib/engine/jfr
@@ -157,6 +169,7 @@ services:
       # N=2 por defecto; `make up-n4` la sobreescribe con los 4 shards.
       SHARDS: "${SHARDS:-matching-shard-0:9090,matching-shard-1:9090}"
       QUEUE_CAPACITY: "10000"
+      RUN_ID: "${RUN_ID:-sin-id}"
     ports:
       - "8080:8080"
     depends_on:

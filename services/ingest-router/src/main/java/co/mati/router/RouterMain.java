@@ -34,6 +34,7 @@ public final class RouterMain {
         String shardsSpec = env("SHARDS", "localhost:9090");
         int queueCapacity = Integer.parseInt(env("QUEUE_CAPACITY", "10000"));
         int metricsPort = Integer.parseInt(env("METRICS_PORT", "8085"));
+        String runId = env("RUN_ID", "sin-id");
 
         List<ManagedChannel> channels = new ArrayList<>();
         List<MatchingIngestGrpc.MatchingIngestStub> stubs = new ArrayList<>();
@@ -54,7 +55,7 @@ public final class RouterMain {
         log.info("ingest-router escuchando gRPC en :{} — {} shard(s): {} — cola acotada={}",
                 port, stubs.size(), shardsSpec, queueCapacity);
 
-        PrometheusEndpoint.start(metricsPort, () -> exponer(router, queueCapacity));
+        PrometheusEndpoint.start(metricsPort, () -> exponer(router, queueCapacity, runId));
         log.info("router metricas Prometheus en :{}/metrics", metricsPort);
 
         ScheduledExecutorService reporter = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -80,31 +81,34 @@ public final class RouterMain {
      * el momento del raspado, porque son cinco contadores atómicos y no hay
      * histogramas que drenar: leerlos no le cuesta nada al camino crítico.
      */
-    private static String exponer(RouterService router, int queueCapacity) {
+    private static String exponer(RouterService router, int queueCapacity, String runId) {
         StringBuilder sb = new StringBuilder(1024);
+        // Misma etiqueta que el motor: sin ella el tablero no puede aislar una
+        // corrida y superpone todas las del plan en la misma grafica.
+        String corrida = "corrida=\"" + runId + "\"";
 
         PrometheusEndpoint.ayuda(sb, "router_requests_total", "counter",
                 "Ordenes recibidas por el router, aceptadas y rechazadas.");
-        PrometheusEndpoint.muestra(sb, "router_requests_total", "", router.receivedCount());
+        PrometheusEndpoint.muestra(sb, "router_requests_total", corrida, router.receivedCount());
 
         PrometheusEndpoint.ayuda(sb, "router_rejected_total", "counter",
                 "Ordenes rechazadas por la cola acotada. Debe ser 0 en las fases oficiales.");
-        PrometheusEndpoint.muestra(sb, "router_rejected_total", "", router.rejectedCount());
+        PrometheusEndpoint.muestra(sb, "router_rejected_total", corrida, router.rejectedCount());
 
         PrometheusEndpoint.ayuda(sb, "router_inflight", "gauge",
                 "Solicitudes en vuelo en este instante. Al llegar a la capacidad, el router rechaza.");
-        PrometheusEndpoint.muestra(sb, "router_inflight", "",
+        PrometheusEndpoint.muestra(sb, "router_inflight", corrida,
                 (long) (queueCapacity - router.availablePermits()));
 
         PrometheusEndpoint.ayuda(sb, "router_queue_capacity", "gauge",
                 "Tope de solicitudes en vuelo de la cola acotada.");
-        PrometheusEndpoint.muestra(sb, "router_queue_capacity", "", (long) queueCapacity);
+        PrometheusEndpoint.muestra(sb, "router_queue_capacity", corrida, (long) queueCapacity);
 
         PrometheusEndpoint.ayuda(sb, "router_routed_total", "counter",
                 "Ordenes enviadas a cada particion: la evidencia del reparto por simbolo.");
         for (int i = 0; i < router.shardCount(); i++) {
             PrometheusEndpoint.muestra(sb, "router_routed_total",
-                    "shard=\"" + i + "\"", router.routedCount(i));
+                    corrida + ",shard=\"" + i + "\"", router.routedCount(i));
         }
         return sb.toString();
     }

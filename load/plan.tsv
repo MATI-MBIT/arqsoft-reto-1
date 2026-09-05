@@ -1,0 +1,64 @@
+# Plan de corridas del experimento E01.
+#
+# Esto es DATO, no codigo: cada fila es una corrida y dice a que hipotesis
+# sirve. Agregar un punto de medida es agregar una linea, no escribir un script.
+# El orquestador (experimento.sh) lo lee y lo ejecuta en orden.
+#
+# grupo      agrupacion para correr por partes:  ./load/experimento.sh h2-quiebre
+# id         nombre del directorio de salida (unico)
+# hipotesis  a cual sirve la corrida. Es lo que ordena el informe final.
+# fase       f1 = regimen | f2 = rampa+pico repartido | f4 = todo en UN activo
+# perfil     largo = fase contractual completa | corto = sonda de ~4,5 min
+# n          particiones levantadas
+# vars       K=V;K=V  (BIZ_MICROS, PEAK, JOURNAL, SHARD_CPUS, BIZ_DIST, JFR)
+# criterio   p95<200 = la corrida decide | observa = solo se registra
+#
+# grupo	id	hipotesis	fase	perfil	n	vars	criterio	pregunta
+oficial	of-f1-n2	H1	f1	largo	2	BIZ_MICROS=8000	p95<200	¿Responde a tiempo en operación normal?
+oficial	of-f2-n2	H2	f2	largo	2	BIZ_MICROS=8000	p95<200	¿Aguanta el pico 5× repartido, y vuelve a régimen al bajar?
+oficial	of-f4-n2	H2b	f4	largo	2	BIZ_MICROS=8000	p95<200	¿Se cae con todo el pico contractual en un solo activo?
+
+h2-minimo	min-n1	H2	f2	corto	1	BIZ_MICROS=8000;PEAK=84	p95<200	¿Basta UNA partición para el pico contractual?
+h2-minimo	min-n2	H2	f2	corto	2	BIZ_MICROS=8000;PEAK=84	p95<200	¿Bastan dos?
+h2-minimo	min-n4	H2	f2	corto	4	BIZ_MICROS=8000;PEAK=84	p95<200	¿Cuánto margen dan cuatro?
+
+h2-quiebre	q-n1-090	H2	f2	corto	1	BIZ_MICROS=8000;PEAK=90	p95<200	Punto de quiebre con 1 partición
+h2-quiebre	q-n1-100	H2	f2	corto	1	BIZ_MICROS=8000;PEAK=100	p95<200	Punto de quiebre con 1 partición
+h2-quiebre	q-n1-110	H2	f2	corto	1	BIZ_MICROS=8000;PEAK=110	p95<200	Punto de quiebre con 1 partición
+h2-quiebre	q-n1-120	H2	f2	corto	1	BIZ_MICROS=8000;PEAK=120	p95<200	Punto de quiebre con 1 partición
+h2-quiebre	q-n2-180	H2	f2	corto	2	BIZ_MICROS=8000;PEAK=180	p95<200	¿El quiebre se duplica al duplicar particiones?
+h2-quiebre	q-n2-200	H2	f2	corto	2	BIZ_MICROS=8000;PEAK=200	p95<200	¿El quiebre se duplica al duplicar particiones?
+h2-quiebre	q-n2-220	H2	f2	corto	2	BIZ_MICROS=8000;PEAK=220	p95<200	¿El quiebre se duplica al duplicar particiones?
+h2-quiebre	q-n2-240	H2	f2	corto	2	BIZ_MICROS=8000;PEAK=240	p95<200	¿El quiebre se duplica al duplicar particiones?
+h2-quiebre	q-n4-360	H2	f2	corto	4	BIZ_MICROS=8000;PEAK=360	p95<200	¿Y al cuadruplicarlas?
+h2-quiebre	q-n4-400	H2	f2	corto	4	BIZ_MICROS=8000;PEAK=400	p95<200	¿Y al cuadruplicarlas?
+h2-quiebre	q-n4-440	H2	f2	corto	4	BIZ_MICROS=8000;PEAK=440	p95<200	¿Y al cuadruplicarlas?
+h2-quiebre	q-n4-480	H2	f2	corto	4	BIZ_MICROS=8000;PEAK=480	p95<200	¿Y al cuadruplicarlas?
+
+h2b-caliente	cal-084	H2b	f4	corto	2	BIZ_MICROS=8000;PEAK=84	p95<200	El pico contractual, todo en un activo
+h2b-caliente	cal-100	H2b	f4	corto	2	BIZ_MICROS=8000;PEAK=100	p95<200	¿Dónde deja de responder a tiempo una partición caliente?
+h2b-caliente	cal-110	H2b	f4	corto	2	BIZ_MICROS=8000;PEAK=110	p95<200	¿Dónde deja de responder a tiempo una partición caliente?
+h2b-caliente	cal-120	H2b	f4	corto	2	BIZ_MICROS=8000;PEAK=120	p95<200	¿Dónde deja de responder a tiempo una partición caliente?
+
+h1-bitacora	bit-off	H1	f2	corto	2	BIZ_MICROS=8000;PEAK=84;JOURNAL=off	observa	Línea base sin registro durable
+h1-bitacora	bit-paralelo	H1	f2	corto	2	BIZ_MICROS=8000;PEAK=84;JOURNAL=paralelo	observa	¿Cuesta latencia registrar en paralelo?
+h1-bitacora	bit-serie	H1	f2	corto	2	BIZ_MICROS=8000;PEAK=84;JOURNAL=serie	observa	¿Y ponerlo en el camino crítico?
+
+h2-cpu	cpu-libre	H2	f2	corto	2	BIZ_MICROS=8000;PEAK=84	observa	Línea base sin límite de CPU
+h2-cpu	cpu-2	H2	f2	corto	2	BIZ_MICROS=8000;PEAK=84;SHARD_CPUS=2.0	observa	¿Y con dos núcleos por partición?
+h2-cpu	cpu-1	H2	f2	corto	2	BIZ_MICROS=8000;PEAK=84;SHARD_CPUS=1.0	p95<200	¿Cabe una partición en UN núcleo?
+h2-cpu	cpu-05	H2	f2	corto	2	BIZ_MICROS=8000;PEAK=84;SHARD_CPUS=0.5	observa	¿Y en medio?
+
+presupuesto	pre-05	-	f2	corto	2	BIZ_MICROS=5000;PEAK=84	p95<200	¿Hasta cuánto puede costar una orden con el pico repartido?
+presupuesto	pre-10	-	f2	corto	2	BIZ_MICROS=10000;PEAK=84	p95<200	¿Hasta cuánto puede costar una orden con el pico repartido?
+presupuesto	pre-12	-	f2	corto	2	BIZ_MICROS=12000;PEAK=84	p95<200	¿Hasta cuánto puede costar una orden con el pico repartido?
+presupuesto	pre-13	-	f2	corto	2	BIZ_MICROS=13000;PEAK=84	p95<200	¿Hasta cuánto puede costar una orden con el pico repartido?
+presupuesto	pre-15	-	f2	corto	2	BIZ_MICROS=15000;PEAK=84	p95<200	¿Hasta cuánto puede costar una orden con el pico repartido?
+presupuesto	cpre-05	-	f4	corto	2	BIZ_MICROS=5000;PEAK=84	p95<200	¿Y con todo el pico en una sola partición?
+presupuesto	cpre-08	-	f4	corto	2	BIZ_MICROS=8000;PEAK=84	p95<200	¿Y con todo el pico en una sola partición?
+presupuesto	cpre-09	-	f4	corto	2	BIZ_MICROS=9000;PEAK=84	p95<200	¿Y con todo el pico en una sola partición?
+presupuesto	cpre-10	-	f4	corto	2	BIZ_MICROS=10000;PEAK=84	p95<200	¿Y con todo el pico en una sola partición?
+
+forma	forma-lognormal	-	f2	corto	2	BIZ_MICROS=8000;PEAK=84;BIZ_DIST=lognormal	observa	¿Depende el resultado de la FORMA de la distribución del costo?
+
+jfr	jfr-f2	-	f2	corto	2	BIZ_MICROS=8000;PEAK=84;JFR=1	observa	¿Qué causa los atascos de cientos de milisegundos?

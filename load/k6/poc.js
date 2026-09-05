@@ -192,30 +192,34 @@ function escenariosDe(phase) {
 
 export const options = {
   scenarios: escenariosDe(PHASE),
-  thresholds:
-    PHASE === 'f4'
-      ? {} // F4 es exploratoria: busca el punto de quiebre, no un aprobado/reprobado
-      : {
-          // Criterio de exito de E01: p95 <= 200 ms (p99/p99.9 se observan, no deciden).
-          // Va por ESCENARIO: el calentamiento queda fuera del veredicto por
-          // construccion, no por una nota al pie que nadie verifica.
-          [`grpc_req_duration{scenario:${PHASE}}`]: ['p(95)<200'],
-          // F3 responde su propia pregunta: al bajar del pico, ¿vuelve a regimen?
-          ...(PHASE === 'f2'
-            ? { 'grpc_req_duration{scenario:f3}': ['p(95)<200'] }
-            : {}),
-          // Estos tres se exigen sobre la corrida COMPLETA, calentamiento incluido:
-          // un rechazo o una violacion de enrutamiento invalidan la corrida entera,
-          // no solo la ventana medida.
-          orders_rejected_backpressure: ['count==0'],
-          // Aislamiento del sharding: cada simbolo, siempre el mismo shard
-          shard_routing_violations: ['count==0'],
-          // k6 descarta una iteracion cuando no tiene un VU libre. Eso es carga que
-          // NUNCA se aplico: la tasa real quedo por debajo de la objetivo y el p95
-          // resultante subestima al sistema. Exigir 0 impide que el generador se
-          // vuelva el cuello de botella sin avisar.
-          dropped_iterations: ['count==0'],
-        },
+  // Umbrales UNIFORMES en las tres fases, y no solo en las oficiales.
+  //
+  // La razon es de instrumento, no de criterio: k6 publica el desglose por
+  // escenario --grpc_req_duration{scenario:f4}-- SOLO si existe un umbral sobre
+  // ese submetrico. Sin el, F4 no reportaba ni su p95 medido aparte del
+  // calentamiento ni sus iteraciones descartadas, y el extractor leia vacio.
+  //
+  // Que F4 marque la corrida como fallida cuando pasa de 200 ms no es un
+  // problema: F4 es exploratoria y quien decide si eso importa es el PLAN
+  // (columna criterio), no el codigo de salida de k6. Para un barrido del punto
+  // de quiebre, esa marca es justamente la senal que se busca.
+  thresholds: {
+    // Criterio de exito de E01: p95 <= 200 ms. Va por ESCENARIO, de modo que el
+    // calentamiento queda fuera del veredicto por construccion y no por una
+    // nota al pie que nadie verifica.
+    [`grpc_req_duration{scenario:${PHASE}}`]: ['p(95)<200'],
+    // F3 responde su propia pregunta: al bajar del pico, ¿vuelve a regimen?
+    ...(PHASE === 'f2' ? { 'grpc_req_duration{scenario:f3}': ['p(95)<200'] } : {}),
+    // Los tres de validez, sobre la corrida COMPLETA. Un rechazo o una
+    // violacion de enrutamiento invalidan la corrida entera, no solo la ventana.
+    orders_rejected_backpressure: ['count==0'],
+    shard_routing_violations: ['count==0'],
+    // k6 descarta una iteracion cuando no tiene un cliente virtual libre. Eso es
+    // carga que NUNCA se aplico, y a partir de ahi el modelo abierto degenera en
+    // uno cerrado: la latencia pasa a ser (clientes / throughput) y mide el
+    // generador, no el sistema. Con descartes > 0 el p95 NO es publicable.
+    dropped_iterations: ['count==0'],
+  },
   summaryTrendStats: ['avg', 'p(50)', 'p(95)', 'p(99)', 'p(99.9)', 'max'],
 };
 

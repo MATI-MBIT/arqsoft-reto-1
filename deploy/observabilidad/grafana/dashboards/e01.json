@@ -1,7 +1,7 @@
 {
   "uid": "e01-motor-emparejamiento",
   "title": "E01 · Motor de emparejamiento",
-  "description": "Evidencia en vivo del experimento E01. Se lee de arriba hacia abajo: primero si la corrida cumple, despues por que. Ninguna cifra se interpreta sin el punto de operacion (S) del primer panel.",
+  "description": "Evidencia del experimento E01. La tabla de arriba compara TODAS las corridas del plan, una por fila. El selector «Corrida» aisla una sola en el resto de los paneles: sin el, cuarenta corridas se superponen y no se lee ninguna.",
   "tags": [
     "e01",
     "arqsoft"
@@ -9,16 +9,48 @@
   "timezone": "browser",
   "editable": true,
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
   "time": {
-    "from": "now-1h",
+    "from": "now-6h",
     "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "corrida",
+        "label": "Corrida",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus-e01"
+        },
+        "query": {
+          "qryType": 1,
+          "query": "label_values(engine_orders_total, corrida)",
+          "refId": "A"
+        },
+        "definition": "label_values(engine_orders_total, corrida)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
   },
   "panels": [
     {
       "type": "row",
-      "title": "Veredicto — ¿la corrida cumple el contrato?",
+      "title": "Veredicto — una fila por corrida, sin superponer nada",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -29,16 +61,16 @@
       "panels": []
     },
     {
-      "type": "stat",
-      "title": "Peor p95 por ventana",
+      "type": "table",
+      "title": "Todas las corridas del plan",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "El p95 mas alto que alcanzo cualquier ventana de 5 s de las fases medidas, excluido el calentamiento. Es MAS estricto que el p95 de la corrida que evalua el umbral de k6: basta una ventana mala para pintarlo en rojo.",
+      "description": "Cada corrida es una fila. Es el panel que resuelve el enredo de superponer cuarenta series en una grafica: aqui se comparan de un vistazo y el resto del tablero sirve para entrar en UNA, con el selector de arriba.\\n\\np95: el peor de las ventanas de 5 s de la fase medida — mas estricto que el p95 de la corrida.\\ndescartes: si no esta vacio, la latencia de esa fila NO es del sistema (el generador se quedo sin clientes).",
       "gridPos": {
-        "h": 5,
-        "w": 5,
+        "h": 13,
+        "w": 24,
         "x": 0,
         "y": 1
       },
@@ -48,339 +80,199 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "max_over_time(max(k6_grpc_req_duration_p95{scenario!=\"calentamiento\"})[$__range:])",
+          "expr": "max by (corrida) (max_over_time(k6_grpc_req_duration_p95{scenario!=\"calentamiento\"}[$__range]))",
           "legendFormat": "",
           "refId": "A",
           "editorMode": "code",
           "range": false,
           "instant": true
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
         },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0.2
-              }
-            ]
-          },
-          "decimals": 3
-        },
-        "overrides": []
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Rechazos (motor + router)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus-e01"
-      },
-      "description": "La senal de la cola acotada, sumada en los dos puntos donde puede activarse: el semaforo del router y el ring lleno del motor. El criterio de las fases oficiales exige 0.",
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 5,
-        "y": 1
-      },
-      "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "sum(engine_orders_rejected_total) + sum(router_rejected_total)",
+          "expr": "max by (corrida) (k6_dropped_iterations_total)",
           "legendFormat": "",
-          "refId": "A",
+          "refId": "B",
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max by (corrida) (engine_operating_point_micros)",
+          "legendFormat": "",
+          "refId": "C",
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max by (corrida) (max_over_time(engine_window_wait_micros{quantile=\"0.95\"}[$__range]))",
+          "legendFormat": "",
+          "refId": "D",
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "count by (corrida) (max by (corrida, shard) (engine_orders_total))",
+          "legendFormat": "",
+          "refId": "E",
           "editorMode": "code",
           "range": false,
           "instant": true
         }
       ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
         },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "corrida": "Corrida",
+              "Value #A": "p95 peor ventana",
+              "Value #B": "descartes",
+              "Value #C": "S (µs/orden)",
+              "Value #D": "espera p95 (µs)",
+              "Value #E": "particiones"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
               {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
+                "field": "Corrida"
               }
             ]
           }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Iteraciones descartadas",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus-e01"
-      },
-      "description": "Carga que k6 nunca llego a aplicar por falta de un VU libre. Distinto de 0 invalida la corrida: el p95 resultante subestima al sistema porque la tasa real quedo por debajo de la objetivo.",
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 10,
-        "y": 1
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "sum(k6_dropped_iterations_total) or vector(0)",
-          "legendFormat": "",
-          "refId": "A",
-          "editorMode": "code",
-          "range": false,
-          "instant": true
         }
       ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto"
-      },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
+          "custom": {
+            "align": "auto",
+            "filterable": true
           }
         },
-        "overrides": []
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Violaciones de enrutamiento",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus-e01"
-      },
-      "description": "Veces que un mismo simbolo fue respondido por dos particiones distintas. Rompe el supuesto del unico escritor.",
-      "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 15,
-        "y": 1
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "sum(k6_shard_routing_violations_total) or vector(0)",
-          "legendFormat": "",
-          "refId": "A",
-          "editorMode": "code",
-          "range": false,
-          "instant": true
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95 peor ventana"
+            },
+            "properties": [
               {
-                "color": "green",
-                "value": null
+                "id": "unit",
+                "value": "s"
               },
               {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Punto de operacion (S)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus-e01"
-      },
-      "description": "Costo medio por orden declarado para esta corrida. En 0 la logica de negocio esta apagada y el p95 medido NO es el de un motor real: ninguna cifra de esta pagina se lee sin este numero al lado.",
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 19,
-        "y": 1
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "max(engine_operating_point_micros)",
-          "legendFormat": "",
-          "refId": "A",
-          "editorMode": "code",
-          "range": false,
-          "instant": true
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "µs",
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "LOGICA APAGADA",
-                  "color": "red",
-                  "index": 0
+                "id": "decimals",
+                "value": 3
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.2
+                    }
+                  ]
                 }
               }
-            }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
             ]
           },
-          "decimals": 0
-        },
-        "overrides": []
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "descartes"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       }
     },
     {
       "type": "row",
-      "title": "ASR-02 y ASR-03 — la latencia que ve el cliente",
+      "title": "La corrida seleccionada — ¿cumple el contrato?",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 6
+        "y": 14
       },
       "panels": []
     },
     {
       "type": "timeseries",
-      "title": "Latencia del RPC medida por k6, por escenario",
+      "title": "Latencia del cliente, por escenario",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "La linea roja punteada es el criterio: 200 ms. El calentamiento se dibuja aparte porque aporta trafico y no aporta veredicto -- sus percentiles son de una JVM que todavia esta compilando.",
+      "description": "La linea roja punteada es el criterio: 200 ms. El calentamiento se dibuja aparte porque aporta trafico y no aporta veredicto.",
       "gridPos": {
         "h": 9,
         "w": 14,
         "x": 0,
-        "y": 7
+        "y": 15
       },
       "targets": [
         {
@@ -388,8 +280,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{scenario!=\"calentamiento\"}",
-          "legendFormat": "p95 · {{scenario}}",
+          "expr": "k6_grpc_req_duration_p95{corrida=~\"$corrida\",scenario!=\"calentamiento\"}",
+          "legendFormat": "p95 · {{corrida}} · {{scenario}}",
           "refId": "A",
           "editorMode": "code",
           "range": true,
@@ -400,8 +292,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p99{scenario!=\"calentamiento\"}",
-          "legendFormat": "p99 · {{scenario}}",
+          "expr": "k6_grpc_req_duration_p99{corrida=~\"$corrida\",scenario!=\"calentamiento\"}",
+          "legendFormat": "p99 · {{corrida}} · {{scenario}}",
           "refId": "B",
           "editorMode": "code",
           "range": true,
@@ -412,8 +304,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{scenario=\"calentamiento\"}",
-          "legendFormat": "p95 · calentamiento (fuera del criterio)",
+          "expr": "k6_grpc_req_duration_p95{corrida=~\"$corrida\",scenario=\"calentamiento\"}",
+          "legendFormat": "calentamiento (fuera del criterio)",
           "refId": "C",
           "editorMode": "code",
           "range": true,
@@ -439,11 +331,10 @@
         "defaults": {
           "unit": "s",
           "min": null,
-          "max": null,
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
-            "fillOpacity": 8,
+            "fillOpacity": 6,
             "showPoints": "never",
             "spanNulls": true,
             "thresholdsStyle": {
@@ -469,17 +360,17 @@
     },
     {
       "type": "timeseries",
-      "title": "Tasa alcanzada contra la objetivo",
+      "title": "Tasa lograda contra la objetivo",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "Ordenes por segundo que el generador logro emitir. Si cae por debajo de la objetivo (17/s en regimen, 84/s en pico) el cuello de botella es el generador y la corrida no mide lo que dice medir.",
+      "description": "Si la tasa lograda se despega de la objetivo, el motor topo: a partir de ahi la latencia mide el pool del generador, no el sistema.",
       "gridPos": {
         "h": 9,
         "w": 10,
         "x": 14,
-        "y": 7
+        "y": 15
       },
       "targets": [
         {
@@ -487,8 +378,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "sum by (scenario) (rate(k6_iterations_total[1m]))",
-          "legendFormat": "{{scenario}}",
+          "expr": "sum by (corrida, scenario) (rate(k6_iterations_total{corrida=~\"$corrida\"}[1m]))",
+          "legendFormat": "{{corrida}} · {{scenario}}",
           "refId": "A",
           "editorMode": "code",
           "range": true,
@@ -514,11 +405,10 @@
         "defaults": {
           "unit": "reqps",
           "min": 0,
-          "max": null,
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
-            "fillOpacity": 8,
+            "fillOpacity": 6,
             "showPoints": "never",
             "spanNulls": true,
             "thresholdsStyle": {
@@ -540,29 +430,29 @@
     },
     {
       "type": "row",
-      "title": "Dentro del motor — donde se va el tiempo",
+      "title": "Dónde se va el tiempo — espera contra servicio",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 16
+        "y": 24
       },
       "panels": []
     },
     {
       "type": "timeseries",
-      "title": "Espera contra servicio (p95, por particion)",
+      "title": "Espera y servicio, percentil 95 por partición",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "La descomposicion que decide que se ataca. Si crece la ESPERA hay que agregar particiones: la orden hace fila. Si crece el SERVICIO hay que abaratar la orden: mas particiones no ayudan. total = espera + servicio.",
+      "description": "La descomposicion que decide que se ataca. Si crece la ESPERA hay que agregar particiones: la orden hace fila. Si crece el SERVICIO hay que abaratar la orden: mas particiones no ayudan.",
       "gridPos": {
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 17
+        "y": 25
       },
       "targets": [
         {
@@ -570,7 +460,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "engine_window_wait_micros{quantile=\"0.95\"}",
+          "expr": "engine_window_wait_micros{quantile=\"0.95\",corrida=~\"$corrida\"}",
           "legendFormat": "espera · shard {{shard}}",
           "refId": "A",
           "editorMode": "code",
@@ -582,7 +472,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "engine_window_service_micros{quantile=\"0.95\"}",
+          "expr": "engine_window_service_micros{quantile=\"0.95\",corrida=~\"$corrida\"}",
           "legendFormat": "servicio · shard {{shard}}",
           "refId": "B",
           "editorMode": "code",
@@ -609,11 +499,10 @@
         "defaults": {
           "unit": "µs",
           "min": 0,
-          "max": null,
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
-            "fillOpacity": 8,
+            "fillOpacity": 6,
             "showPoints": "never",
             "spanNulls": true,
             "thresholdsStyle": {
@@ -640,12 +529,12 @@
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "Arribo al motor -> materializacion. La serie de 'peor orden' es la que delata los atascos aislados: un solo evento de cientos de milisegundos incumple el SLA por si mismo aunque el p95 este comodo.",
+      "description": "La serie de 'peor orden' delata los atascos aislados: un solo evento de cientos de milisegundos incumple el SLA aunque el p95 este comodo.",
       "gridPos": {
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 17
+        "y": 25
       },
       "targets": [
         {
@@ -653,7 +542,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "engine_window_latency_micros{quantile=\"0.95\"}",
+          "expr": "engine_window_latency_micros{quantile=\"0.95\",corrida=~\"$corrida\"}",
           "legendFormat": "p95 · shard {{shard}}",
           "refId": "A",
           "editorMode": "code",
@@ -665,7 +554,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "engine_window_latency_micros{quantile=\"0.999\"}",
+          "expr": "engine_window_latency_micros{quantile=\"0.999\",corrida=~\"$corrida\"}",
           "legendFormat": "p99.9 · shard {{shard}}",
           "refId": "B",
           "editorMode": "code",
@@ -677,7 +566,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "engine_window_latency_max_micros",
+          "expr": "engine_window_latency_max_micros{corrida=~\"$corrida\"}",
           "legendFormat": "peor orden · shard {{shard}}",
           "refId": "C",
           "editorMode": "code",
@@ -704,11 +593,10 @@
         "defaults": {
           "unit": "µs",
           "min": 0,
-          "max": null,
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
-            "fillOpacity": 8,
+            "fillOpacity": 6,
             "showPoints": "never",
             "spanNulls": true,
             "thresholdsStyle": {
@@ -730,29 +618,29 @@
     },
     {
       "type": "row",
-      "title": "Sharding y freno de entrada",
+      "title": "Escalabilidad — reparto entre particiones y freno de entrada",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 26
+        "y": 34
       },
       "panels": []
     },
     {
       "type": "timeseries",
-      "title": "Reparto de ordenes entre particiones",
+      "title": "Órdenes por segundo que resuelve cada partición",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "Ordenes por segundo que el router envio a cada particion. Con los 36 simbolos del generador el reparto es 18/18 con N=2 y 9/9/9/9 con N=4. Un desbalance aqui se disfrazaria de problema de latencia.",
+      "description": "Con los 36 activos del conjunto el reparto es 18/18 con N=2 y 9/9/9/9 con N=4. Un desbalance aqui se disfrazaria de problema de latencia.",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 27
+        "y": 35
       },
       "targets": [
         {
@@ -760,7 +648,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "rate(router_routed_total[1m])",
+          "expr": "rate(engine_orders_total{corrida=~\"$corrida\"}[1m])",
           "legendFormat": "shard {{shard}}",
           "refId": "A",
           "editorMode": "code",
@@ -787,11 +675,10 @@
         "defaults": {
           "unit": "reqps",
           "min": 0,
-          "max": null,
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
-            "fillOpacity": 8,
+            "fillOpacity": 6,
             "showPoints": "never",
             "spanNulls": true,
             "thresholdsStyle": {
@@ -813,17 +700,17 @@
     },
     {
       "type": "timeseries",
-      "title": "Cola del router: solicitudes en vuelo contra su tope",
+      "title": "Cola del router contra su tope",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "Al tocar el tope, el router rechaza en vez de encolar sin limite. Ver cuanta holgura queda dice si el freno estuvo cerca de activarse o ni se acerco.",
+      "description": "Al tocar el tope el router rechaza en vez de encolar sin limite. Cuanta holgura queda dice si el freno estuvo cerca de activarse o ni se acerco.",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 27
+        "y": 35
       },
       "targets": [
         {
@@ -831,7 +718,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "router_inflight",
+          "expr": "router_inflight{corrida=~\"$corrida\"}",
           "legendFormat": "en vuelo",
           "refId": "A",
           "editorMode": "code",
@@ -843,7 +730,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "router_queue_capacity",
+          "expr": "router_queue_capacity{corrida=~\"$corrida\"}",
           "legendFormat": "tope de la cola",
           "refId": "B",
           "editorMode": "code",
@@ -870,11 +757,10 @@
         "defaults": {
           "unit": "short",
           "min": 0,
-          "max": null,
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
-            "fillOpacity": 8,
+            "fillOpacity": 6,
             "showPoints": "never",
             "spanNulls": true,
             "thresholdsStyle": {
@@ -896,124 +782,29 @@
     },
     {
       "type": "row",
-      "title": "Los dos relojes — cuanto cuesta el transporte",
+      "title": "Procedencia — sin esto, dos corridas distintas son indistinguibles",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 35
+        "y": 43
       },
       "panels": []
     },
     {
-      "type": "timeseries",
-      "title": "k6 (cliente) contra motor (interno), y su diferencia",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus-e01"
-      },
-      "description": "Dos relojes miden lo mismo desde extremos distintos, y su resta es el costo de la red y del router. Contrastarlos descarta que el generador este contaminando el resultado. Ojo: el motor publica ventanas de 10 s y k6 empuja cada 5 s, asi que la resta es aproximada en los bordes.",
-      "gridPos": {
-        "h": 8,
-        "w": 14,
-        "x": 0,
-        "y": 36
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "max(k6_grpc_req_duration_p95{scenario!=\"calentamiento\"})",
-          "legendFormat": "p95 visto por el cliente (k6)",
-          "refId": "A",
-          "editorMode": "code",
-          "range": true,
-          "instant": false
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "max(engine_window_latency_micros{quantile=\"0.95\"}) / 1e6",
-          "legendFormat": "p95 medido dentro del motor",
-          "refId": "B",
-          "editorMode": "code",
-          "range": true,
-          "instant": false
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "max(k6_grpc_req_duration_p95{scenario!=\"calentamiento\"}) - max(engine_window_latency_micros{quantile=\"0.95\"}) / 1e6",
-          "legendFormat": "diferencia = transporte + router",
-          "refId": "C",
-          "editorMode": "code",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "mean",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "min": null,
-          "max": null,
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 8,
-            "showPoints": "never",
-            "spanNulls": true,
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
       "type": "table",
-      "title": "Provenance de la corrida",
+      "title": "Punto de operación de la corrida seleccionada",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "Sin esto, dos corridas con resultados distintos son indistinguibles. La forma es la distribucion del costo por orden, Cs2 su variabilidad, y 'CPU visibles' lo que la JVM cree tener: con una cuota de cgroup ese numero baja y con el bajan los hilos de ZGC, JIT y gRPC.",
+      "description": "La forma de la distribucion del costo, su variabilidad (Cs2), la disposicion de la bitacora, las CPU que ve la JVM y el techo aritmetico que implica la media declarada. Ninguna cifra del tablero se lee sin esto al lado.",
       "gridPos": {
         "h": 8,
-        "w": 10,
-        "x": 14,
-        "y": 36
+        "w": 24,
+        "x": 0,
+        "y": 44
       },
       "targets": [
         {
@@ -1021,7 +812,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "engine_info",
+          "expr": "engine_info{corrida=~\"$corrida\"}",
           "legendFormat": "",
           "refId": "A",
           "editorMode": "code",
@@ -1033,7 +824,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "engine_available_processors",
+          "expr": "engine_available_processors{corrida=~\"$corrida\"}",
           "legendFormat": "",
           "refId": "B",
           "editorMode": "code",
@@ -1045,9 +836,21 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "engine_ceiling_orders_per_second",
+          "expr": "engine_ceiling_orders_per_second{corrida=~\"$corrida\"}",
           "legendFormat": "",
           "refId": "C",
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "engine_operating_point_micros{corrida=~\"$corrida\"}",
+          "legendFormat": "",
+          "refId": "D",
           "editorMode": "code",
           "range": false,
           "instant": true
@@ -1067,6 +870,16 @@
               "job": true,
               "instance": true,
               "experimento": true
+            },
+            "renameByName": {
+              "corrida": "Corrida",
+              "shard": "Partición",
+              "forma": "Forma",
+              "cs2": "Cs²",
+              "journal": "Bitácora",
+              "Value #B": "CPU que ve la JVM",
+              "Value #C": "techo 1/S (órd/s)",
+              "Value #D": "S (µs/orden)"
             }
           }
         }
@@ -1077,7 +890,20 @@
             "align": "auto"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
       }
     }
   ]

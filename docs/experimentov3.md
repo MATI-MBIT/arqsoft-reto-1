@@ -54,10 +54,10 @@ flowchart TB
     RT -->|"~1/N de la carga"| SC["motor N…\nmás motores = más capacidad"]
 ```
 
-Un motor no atiende un solo símbolo: hay N motores fijos y cada uno es dueño de *varios* símbolos. La regla que importa es que **un símbolo cae siempre en el mismo motor** — así nadie más toca su libro, jamás.
+Un motor no atiende un solo símbolo: hay N motores fijos y cada uno es dueño de *varios* símbolos. lo que importa es que **un símbolo siempre cae en el mismo motor** — así nadie más toca el mismo libro.
 
-**H2b — Partición caliente** (el caso donde H2 no ayuda)**:** si todo el pico se concentra en un solo activo, el sistema deja de responder a tiempo antes de llegar al pico completo.
-*Por qué lo creemos:* las órdenes de un activo las atiende siempre el mismo motor **—los demás no pueden ayudarle—** y un motor solo tiene la fuerza de un núcleo. la hipotesis es **en que punto se degrada el motor**.
+**H2b — Partición caliente** (el caso donde H2 no ayuda): si todo el pico se concentra en un solo activo, el sistema deja de responder a tiempo antes de llegar al pico completo.
+¿Por qué lo creemos?: las órdenes de un activo las atiende siempre el mismo motor — los demás no pueden ayudarle — y un motor solo tiene la fuerza de un núcleo y la pregunta es ¿Cuál es el punto de quiebre del motor?.
 
 ```mermaid
 flowchart TB
@@ -68,31 +68,31 @@ flowchart TB
 
 ## Tácticas, y lo que se descartó
 
-Además del patrón LMAX (el motor de un solo hilo) y el reparto fijo por símbolo, el diseño usa tres tácticas: los datos del camino crítico viven en memoria; nada espera un candado; y lo lento —registrar, notificar— se hace aparte, sin frenar la respuesta. En la entrada, la fila con límite prefiere **rechazar** el exceso antes que prometer una respuesta que llegará tarde.
+Además del patrón LMAX y el sharding determinístico, el diseño busca mantener los datos del camino crítico en memoria, evitar bloqueos y contención (nunca esperar un lock), mover trabajo asíncrono fuera del camino crítico, y cola acotada con backpressure en la ingesta (se prefiere frenar la entrada antes que prometer una latencia incumplible).
 
-Se descartaron: un grupo de trabajadores con filas bloqueantes (reintroduce las esperas que el diseño elimina); candados finos por nivel de precio (riesgo de abrazos mortales y demoras impredecibles); una base de datos relacional con bloqueo por fila (queda solo como línea base de comparación); un modelo de actores (cada mensaje paga un buzón); y bloqueo distribuido (mete un viaje de red en el camino crítico).
+Se descartaron: un pool de workers con colas bloqueantes (reintroduce la contención que el diseño busca eliminar), locks por nivel (riesgo de deadlocks y latencia impredecible), una base de datos relacional (se mantiene solo como línea base de comparación), un modelo de actores (overhead de buzón de mensajes) y bloqueo distribuido (agrega un salto de red al camino crítico).
 
-## Cómo lo vamos a probar — cuatro fases
+## Cómo se diseñó el experimento
 
 Todas arrancan con un precalentamiento que no se mide, para que la máquina virtual de Java se estabilice.
 
-- **F1 — Línea base (ASR-02):** carga normal, 12 minutos, órdenes llegando a ritmo irregular —como en la realidad— repartidas en 36 símbolos.
+- **F1 — Línea base (ASR-02):** carga normal, 12 minutos, órdenes llegando a ritmo irregular (estocástico) —como en la realidad— repartidas en 36 símbolos.
 - **F2 — Rampa y pico (ASR-03):** subir de la carga normal al pico 5× y sostenerlo 30 minutos, repartido entre símbolos.
 - **F3 — Retorno a régimen:** bajar de nuevo a carga normal y verificar que la fila se vacía y la latencia vuelve a la de F1 — el pico exigido es transitorio, no permanente.
 - **F4 — Partición caliente (exploratoria):** el mismo pico, pero el 100 % en un solo símbolo; y después más allá del contrato —250, 500 y 1.000 órdenes/s— hasta encontrar el punto de quiebre.
 
 ```mermaid
 flowchart LR
-    P["2 min\nprecalentamiento"] --> RA["2 min\nrampa hasta 5×"] --> PK["30 min\npico sostenido"] --> D["1 min\nbaja de nuevo"] --> F3["5 min\ndrena y vuelve a régimen"]
+    P["2 min\nprecalentamiento"] --> RA["2 min\nrampa hasta 5×"] --> PK["30 min\npico sostenido"] --> D["1 min\nbaja de nuevo"] --> F3["5 min\ndrena y vuelve a normal"]
 ```
 
-**Criterio de éxito en las fases oficiales (F1 y F2), verificado en vivo:** responder a tiempo (p95 bajo 200 ms), cero órdenes rechazadas, cero órdenes que el generador no logró emitir, y cero violaciones del reparto — cada símbolo respondido siempre por el mismo motor.
+**Criterio de éxito en las fases oficiales (F1 y F2), verificado en vivo:** responder a tiempo (p95 bajo 200 ms), cero órdenes rechazadas, cero órdenes que el generador no logró emitir, y cero error de la entrega — cada símbolo respondido siempre por el mismo motor.
 
 ## Qué vamos a medir
 
-Cada corrida se mide **dos veces**: el generador de carga mide lo que esperaría un cliente (de que envía la orden a que recibe respuesta) y el motor se mide por dentro (de que la orden llega a que se resuelve). La resta entre ambos dice cuánto cuesta el transporte.
+Cada ejecución mide dos momentos clave, el primer momento ocurre cuando el generador de carga toma la medida de  cuanto tiempo esperaría un cliente (desde que envía la orden hasta que recibe la respuesta) y el segundo momento es cuando llega la orden y es resuelta por el motor. La resta de ambos tiempos nos indica cuanto cuesta el transporte completo.
 
-Adentro, el motor parte su tiempo en dos: **espera** (lo que la orden hizo fila) y **servicio** (lo que costó procesarla). Esa separación decide la acción correcta si algo sale mal — si crece el servicio, hay que abaratar la orden; si crece la espera, hay que agregar motores.
+Adentro de motor, el tiempo de ejecución se parte en dos: "En Espera" (el tiempo en que la orden hizo fila para ser atendida por el motor) y "En servicio" (el tiempo que cuesta procesarla). Estos momentos permiten tomar acciones en caso de que algo falle ( si crece en estado "En servicio", se debe agilizar la atención, si crece el estado "En Espera", hay que agregar motores)
 
 ## El parámetro clave: cuánto cuesta procesar una orden
 

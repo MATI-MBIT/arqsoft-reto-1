@@ -2017,7 +2017,7 @@
     },
     {
       "type": "row",
-      "title": "Con qué corrió cada una — la procedencia de todo lo de arriba",
+      "title": "Cuánto se procesó y con qué — la procedencia de todo lo de arriba",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -2027,6 +2027,96 @@
       },
       "panels": [],
       "id": 26
+    },
+    {
+      "type": "timeseries",
+      "title": "Órdenes procesadas en cada corrida",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-e01"
+      },
+      "description": "Cada diente es una corrida: sube mientras procesa y vuelve a cero cuando la siguiente levanta su topología. La altura del diente son las órdenes que esa corrida alcanzó a materializar, y la pendiente, a qué ritmo. Un diente más bajo de lo esperado significa que la carga no se aplicó entera.",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 94
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "sum(engine_orders_total{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"})",
+          "legendFormat": "órdenes procesadas",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "órdenes procesadas"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "id": 27
     },
     {
       "type": "table",
@@ -2040,7 +2130,7 @@
         "h": 13,
         "w": 24,
         "x": 0,
-        "y": 94
+        "y": 103
       },
       "targets": [
         {
@@ -2094,6 +2184,32 @@
           "range": false,
           "instant": true,
           "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max by (corrida) (max_over_time(engine_orders_total{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
+          "legendFormat": "",
+          "refId": "E",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max by (corrida) (max_over_time(engine_orders_rejected_total{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
+          "legendFormat": "",
+          "refId": "F",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "table"
         }
       ],
       "transformations": [
@@ -2115,7 +2231,9 @@
               "journal": "Bitácora",
               "Value #B": "Costo por orden",
               "Value #C": "Techo que implica",
-              "Value #D": "Núcleos que vio"
+              "Value #D": "Núcleos que vio",
+              "Value #E": "Órdenes procesadas",
+              "Value #F": "Órdenes rechazadas"
             }
           }
         },
@@ -2373,13 +2491,74 @@
               },
               {
                 "id": "custom.width",
-                "value": 150
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Órdenes procesadas"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Órdenes rechazadas"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
               }
             ]
           }
         ]
       },
-      "id": 27
+      "id": 28
     }
   ]
 }

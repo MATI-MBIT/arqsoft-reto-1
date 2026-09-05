@@ -418,7 +418,9 @@ Por eso el entregable no es una cifra de latencia sino un **presupuesto**: *el d
          "targets": [objetivo('max by (corrida, forma, journal) (max_over_time(engine_info{' + delplan + '}[$__range]))', "", "A", True, tabla=True),
                      objetivo('max by (corrida) (max_over_time(engine_operating_point_micros{' + delplan + '}[$__range]))', "", "B", True, tabla=True),
                      objetivo('max by (corrida) (max_over_time(engine_ceiling_orders_per_second{' + delplan + '}[$__range]))', "", "C", True, tabla=True),
-                     objetivo('max by (corrida) (max_over_time(engine_available_processors{' + delplan + '}[$__range]))', "", "D", True, tabla=True)],
+                     objetivo('max by (corrida) (max_over_time(engine_available_processors{' + delplan + '}[$__range]))', "", "D", True, tabla=True),
+                     objetivo('max by (corrida) (max_over_time(engine_orders_total{' + delplan + '}[$__range]))', "", "E", True, tabla=True),
+                     objetivo('max by (corrida) (max_over_time(engine_orders_rejected_total{' + delplan + '}[$__range]))', "", "F", True, tabla=True)],
          "transformations": [
              {"id": "merge", "options": {}},
              {"id": "organize", "options": {
@@ -428,7 +430,9 @@ Por eso el entregable no es una cifra de latencia sino un **presupuesto**: *el d
                  "renameByName": {
                      "corrida": "Corrida", "forma": "Forma del costo", "journal": "Bitácora",
                      "Value #B": "Costo por orden", "Value #C": "Techo que implica",
-                     "Value #D": "Núcleos que vio"}}},
+                     "Value #D": "Núcleos que vio",
+                     "Value #E": "Órdenes procesadas",
+                     "Value #F": "Órdenes rechazadas"}}},
              {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "Corrida"}]}}],
          "fieldConfig": {"defaults": {"custom": {"align": "auto", "filterable": True}}, "overrides": [
              {"matcher": {"id": "byName", "options": "Corrida"},
@@ -440,11 +444,34 @@ Por eso el entregable no es una cifra de latencia sino un **presupuesto**: *el d
               "properties": [{"id": "unit", "value": "reqps"}, {"id": "decimals", "value": 0},
                              {"id": "custom.width", "value": 170}]},
              {"matcher": {"id": "byName", "options": "N\u00facleos que vio"},
-              "properties": [{"id": "decimals", "value": 0}, {"id": "custom.width", "value": 150}]}]}},
+              "properties": [{"id": "decimals", "value": 0}, {"id": "custom.width", "value": 130}]},
+             {"matcher": {"id": "byName", "options": "\u00d3rdenes procesadas"},
+              "properties": [{"id": "decimals", "value": 0}, {"id": "custom.width", "value": 160},
+                             {"id": "custom.cellOptions",
+                              "value": {"type": "gauge", "mode": "gradient"}}]},
+             {"matcher": {"id": "byName", "options": "\u00d3rdenes rechazadas"},
+              "properties": [{"id": "decimals", "value": 0}, {"id": "custom.width", "value": 160},
+                             {"id": "custom.cellOptions", "value": {"type": "color-background"}},
+                             {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                                 {"color": "green", "value": None}, {"color": "red", "value": 1}]}}]}]}},
     ]
     # SIN plegar: una tabla que hay que desplegar no la abre nadie, y esta es
     # justamente la que dice si las cifras de arriba significan algo.
-    fila("Con qué corrió cada una — la procedencia de todo lo de arriba")
+    fila("Cuánto se procesó y con qué — la procedencia de todo lo de arriba")
+
+    # El contador del motor se reinicia con cada corrida, porque cada una levanta
+    # su topologia. Dibujado en el tiempo eso da un diente de sierra: la ALTURA
+    # de cada diente son las ordenes que proceso esa corrida. Una sola serie, sin
+    # cuarenta entradas de leyenda encimadas.
+    P.append(lineas("Órdenes procesadas en cada corrida",
+                    [("órdenes procesadas", 'sum(engine_orders_total{%s})' % delplan)],
+                    0, y, 24, 9,
+                    "Cada diente es una corrida: sube mientras procesa y vuelve a cero cuando la "
+                    "siguiente levanta su topología. La altura del diente son las órdenes que esa "
+                    "corrida alcanzó a materializar, y la pendiente, a qué ritmo. Un diente más bajo "
+                    "de lo esperado significa que la carga no se aplicó entera.",
+                    unidad="short", colores={"órdenes procesadas": "purple"}))
+    y += 9
     P.append(procedencia[0])
     P[-1]["gridPos"]["y"] = y
 

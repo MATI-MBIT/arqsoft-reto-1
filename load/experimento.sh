@@ -18,7 +18,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-COMPOSE="docker compose -f $ROOT/deploy/docker-compose.yml"
+declare -a COMPOSE=(docker compose -f "$ROOT/deploy/docker-compose.yml")
 PLAN="$ROOT/load/plan.tsv"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT="${RESULTS_DIR:-$ROOT/load/k6/results/e01-$STAMP}"
@@ -48,14 +48,14 @@ RESULTADOS="$OUT/resultados.tsv"
 levantar() {
   local n="$1"; shift
   # shellcheck disable=SC2086
-  $COMPOSE --profile n4 rm -sf $APP >/dev/null 2>&1 || true
+  "${COMPOSE[@]}" --profile n4 rm -sf $APP >/dev/null 2>&1 || true
   for v in journal-0 journal-1 journal-2 journal-3 jfr-0 jfr-1 jfr-2 jfr-3; do
     docker volume rm -f "arqsoft-reto-1_$v" >/dev/null 2>&1 || true
   done
   case "$n" in
-    1) SHARDS="matching-shard-0:9090" $COMPOSE up -d ingest-router matching-shard-0 prometheus grafana >/dev/null ;;
-    4) SHARDS="$SHARDS_N4" $COMPOSE --profile n4 up -d >/dev/null ;;
-    *) $COMPOSE up -d >/dev/null ;;
+    1) SHARDS="matching-shard-0:9090" "${COMPOSE[@]}" up -d ingest-router matching-shard-0 prometheus grafana >/dev/null ;;
+    4) SHARDS="$SHARDS_N4" "${COMPOSE[@]}" --profile n4 up -d >/dev/null ;;
+    *) "${COMPOSE[@]}" up -d >/dev/null ;;
   esac
   sleep 20
 }
@@ -129,7 +129,7 @@ ejecutar() {
 
   # La procedencia se VERIFICA, no se declara: una corrida anterior anuncio
   # S=8000us y arranco con S=0.
-  local real; real="$($COMPOSE logs matching-shard-0 2>/dev/null | grep -m1 'modelo de logica' | sed 's/.*negocio: //')"
+  local real; real="$("${COMPOSE[@]}" logs matching-shard-0 2>/dev/null | grep -m1 'modelo de logica' | sed 's/.*negocio: //')"
   echo "  motor: $real"
   if [ "${BIZ_MICROS:-0}" != "0" ] && ! grep -q "media=${BIZ_MICROS}us" <<<"$real"; then
     echo "  ✗ ABORTA: se pidió S=${BIZ_MICROS}us y el motor arrancó con: $real"
@@ -137,7 +137,7 @@ ejecutar() {
     return 1
   fi
   if [ "${SHARD_CPUS:-0}" != "0" ]; then
-    local nano; nano="$(docker inspect "$($COMPOSE ps -q matching-shard-0)" --format '{{.HostConfig.NanoCpus}}' 2>/dev/null)"
+    local nano; nano="$(docker inspect "$("${COMPOSE[@]}" ps -q matching-shard-0)" --format '{{.HostConfig.NanoCpus}}' 2>/dev/null)"
     echo "  cgroup: NanoCpus=$nano (pedido: $SHARD_CPUS núcleos)"
   fi
 
@@ -148,8 +148,8 @@ ejecutar() {
       --summary-export="$dir/k6.json" poc.js ) > "$dir/k6.txt" 2>&1
 
   # shellcheck disable=SC2086
-  $COMPOSE stop $APP >/dev/null 2>&1 || true
-  $COMPOSE logs --no-color 2>/dev/null \
+  "${COMPOSE[@]}" stop $APP >/dev/null 2>&1 || true
+  "${COMPOSE[@]}" logs --no-color 2>/dev/null \
     | grep -E "modelo de logica|runtime:|journal:|ACUMULADO|JOURNAL shard" > "$dir/shard.log" || true
   [ "${JFR:-0}" = "1" ] && perfilar_jfr "$dir"
 
@@ -232,7 +232,7 @@ perfilar_jfr() {
   [ -x "$jdk" ] || { echo "  (sin herramienta jfr: se guarda la grabación sin resumir)"; }
   for s in 0 1; do
     # docker cp funciona con el contenedor detenido y evita traer otra imagen.
-    $COMPOSE cp "matching-shard-$s:/var/lib/engine/jfr/shard.jfr" "$dir/shard-$s.jfr" >/dev/null 2>&1 || true
+    "${COMPOSE[@]}" cp "matching-shard-$s:/var/lib/engine/jfr/shard.jfr" "$dir/shard-$s.jfr" >/dev/null 2>&1 || true
     [ -x "$jdk" ] && [ -s "$dir/shard-$s.jfr" ] && "$jdk" summary "$dir/shard-$s.jfr" > "$dir/shard-$s-eventos.txt" 2>&1
   done
   {
@@ -258,8 +258,8 @@ echo "  plan: $PLAN"
 echo "  salida: $OUT"
 [ "${#GRUPOS[@]}" -gt 0 ] && echo "  grupos: ${GRUPOS[*]}" || echo "  grupos: TODOS"
 echo "══════════════════════════════════════════════════════════════"
-$COMPOSE build
-$COMPOSE up -d prometheus grafana >/dev/null 2>&1 || true
+"${COMPOSE[@]}" build
+"${COMPOSE[@]}" up -d prometheus grafana >/dev/null 2>&1 || true
 
 TOTAL=0
 while IFS=$'\t' read -r grupo id hip fase perfil n vars criterio pregunta; do
@@ -274,7 +274,7 @@ while IFS=$'\t' read -r grupo id hip fase perfil n vars criterio pregunta; do
 done < "$PLAN"
 
 # shellcheck disable=SC2086
-$COMPOSE stop $APP >/dev/null 2>&1 || true
+"${COMPOSE[@]}" stop $APP >/dev/null 2>&1 || true
 
 echo ""
 echo "══════════════════════════════════════════════════════════════"

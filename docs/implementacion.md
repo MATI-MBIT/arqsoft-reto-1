@@ -7,7 +7,7 @@ nav_order: 3
 
 La [ficha del experimento](experimento.html) dice qué se apuesta. Este documento dice cómo está construido el artefacto que la pone a prueba: el viaje de una orden, dónde vive cada táctica del diseño, qué perillas tiene y cómo se mide.
 
-Conviene entrar sabiendo cuál es el entregable, porque no es el que uno esperaría. **No es un percentil.** El prototipo no implementa la lógica de negocio real, y en un diseño de un único escritor ese costo por orden gobierna todo lo demás. Así que lo que sale de aquí es un **presupuesto**: cuánto puede costar procesar una orden sin romper el contrato. Medido, **12,4 ms** con el pico repartido entre dos particiones y **8,5 ms** con todo el pico en una sola.
+Conviene entrar sabiendo cuál es el entregable, porque no es el que uno esperaría. **No es un percentil.** El prototipo no implementa la lógica de negocio real, y como un solo hilo procesa las órdenes en serie, el tiempo que cuesta cada una se acumula y termina gobernando todo lo demás. Así que lo que sale de aquí es un **presupuesto**: cuánto puede costar procesar una orden sin romper el contrato. Medido, **12,4 ms** con el pico repartido entre dos particiones y **8,5 ms** con todo el pico en una sola.
 
 ## 1. El sistema en ejecución
 
@@ -15,17 +15,17 @@ Tres módulos Java 21 en un monorepo Gradle, desplegados como contenedores indep
 
 ```mermaid
 flowchart LR
-    K6["k6 (generador)\nmodelo abierto de llegada"] -- "gRPC :8080\nSubmitOrder" --> R
+    K6["k6 (generador)<br/>modelo abierto de llegada"] -- "gRPC :8080<br/>SubmitOrder" --> R
     subgraph Docker Compose
-      R["ingest-router\nhash(símbolo) % N\nfila con límite (Semaphore)"]
-      R -- "gRPC :9090" --> S0["matching-shard-0\nanillo → bitácora ∥ cruce\nlibro en memoria"]
+      R["ingest-router<br/>hash(símbolo) % N<br/>fila con límite (Semaphore)"]
+      R -- "gRPC :9090" --> S0["matching-shard-0<br/>anillo → cruce y bitácora en paralelo<br/>libro en memoria"]
       R -- "gRPC :9090" --> S1["matching-shard-1"]
       R -. "perfil n4" .-> S2["matching-shard-2"]
       R -. "perfil n4" .-> S3["matching-shard-3"]
-      S0 -. "/metrics" .-> P["Prometheus\nraspa cada 10 s"]
+      S0 -. "/metrics" .-> P["Prometheus<br/>raspa cada 10 s"]
       S1 -. "/metrics" .-> P
       R  -. "/metrics" .-> P
-      P --> G["Grafana\ntablero E01"]
+      P --> G["Grafana<br/>tablero E01"]
     end
     K6 -. "escritura remota" .-> P
 ```
@@ -40,7 +40,7 @@ Cada **partición es un proceso** —un contenedor, llamado *shard* aquí y en l
 4. **`IngestGrpcService`**, ya dentro de la partición, toma `t0 = System.nanoTime()` —el "arribo al motor"— e intenta publicar en el anillo con `tryNext()`. Si el anillo está lleno responde `REJECTED` sin bloquear los hilos de red.
 5. El **único hilo escritor** (`MatchingHandler`) toma el evento en orden de llegada, busca el `OrderBook` del símbolo y ejecuta el cruce por prioridad precio-tiempo. No hay candados: nadie más puede tocar ese libro, por construcción. Luego aplica `BusinessLogicModel`, que consume el costo por orden declarado para la corrida.
 6. El escritor registra tres tiempos en HdrHistogram —espera, servicio y total— y completa la respuesta: estado `MATCHED`, `PARTIALLY_MATCHED` o `RESTING`, cantidad materializada, latencia interna y partición.
-7. Con la bitácora encendida, **`JournalHandler` consume el mismo evento en paralelo** y lo escribe en un archivo de solo-anexado, forzando el volcado a disco una vez por lote. No suma latencia al cliente, pero el acuse se emite sin esperar al disco. En modo `serie` va encadenado *antes* del cruce: el acuse implica durabilidad, al precio de meter el disco en el camino crítico.
+7. Con la bitácora encendida, **`JournalHandler` consume el mismo evento en paralelo** y lo escribe en un archivo de solo-anexado, forzando el volcado a disco una vez por lote. No suma latencia al cliente, pero a cambio el acuse se emite sin esperar al disco: no garantiza que la orden ya esté guardada. En modo `serie` va encadenado *antes* del cruce: el acuse implica durabilidad, al precio de meter el disco en el camino crítico.
 8. Un **manejador de limpieza encadenado al final** vacía la casilla para que se recicle sin generar basura. Va ahí y no dentro del escritor porque, con dos consumidores en paralelo, **ninguno de los dos puede modificar el evento**: la casilla pertenece al anillo hasta que ambos pasaron.
 9. La respuesta viaja de vuelta hasta k6, que la cuenta en `grpc_req_duration`. El permiso del semáforo se libera cuando la llamada termina.
 
@@ -50,7 +50,7 @@ k6 mide la llamada completa; la partición mide arribo → materialización. **L
 
 Para que esa resta valga, los dos lados tienen que publicar el mismo estadístico. La partición publica dos cosas distintas. Una es un histograma por ventana de diez segundos, útil para ver cómo evoluciona una fase por dentro. La otra acumula todas las ventanas y sale al recibir la señal de apagado, con el prefijo `ACUMULADO`.
 
-Solo el acumulado da percentiles de la población entera, y solo esos son comparables cifra a cifra con los de k6: **la mediana de los percentiles 95 por ventana no es un percentil 95.** Es la media de una muestra de percentiles, un estadístico distinto que esconde la dispersión.
+Solo el acumulado da percentiles de la población entera, y solo esos son comparables cifra a cifra con los de k6: **resumir en una sola cifra los percentiles 95 de cada ventana no da un percentil 95.** Es un estadístico sobre una muestra de percentiles, distinto, que esconde la dispersión.
 
 La partición además parte su tiempo en `total = espera + servicio`. Esa descomposición es la que distingue **«hay que abaratar la orden»** de **«hay que agregar particiones»**.
 
@@ -115,7 +115,7 @@ El router es **sin estado**: no conoce libros ni órdenes. Por eso en el diseño
 | `SHARD_MEM` | motor | `0` (sin límite) | Tope de memoria del contenedor |
 | `JAVA_OPTS` | ambos | ZGC, 256–512 MB | Opciones de la máquina virtual. **Se definen en el `Dockerfile`**; Compose solo puede sobreescribirlas |
 
-**Los límites de recursos se verifican, no se declaran.** `make verify-limits` lee el grupo de control real con `docker inspect`, lo contrasta con lo pedido e imprime cuántas CPU cree tener la máquina virtual. Hace falta porque la forma habitual de declararlos en Compose, `deploy.resources`, **se ignora en silencio** fuera de Swarm: produce una corrida que parece confinada y no lo está.
+**Los límites de recursos se verifican, no se declaran.** `make verify-limits` lee el grupo de control real (el *cgroup*) con `docker inspect`, lo contrasta con lo pedido e imprime cuántas CPU cree tener la máquina virtual. Hace falta porque la forma habitual de declararlos en Compose, `deploy.resources`, **se ignora en silencio** fuera de Swarm: produce una corrida que parece confinada y no lo está.
 
 **Volúmenes.** Ocho con nombre: `journal-0..3` para las bitácoras y `jfr-0..3` para las grabaciones. La bitácora no puede escribirse en la capa del contenedor, que es un sistema de archivos superpuesto y no representa a un disco.
 
@@ -147,13 +147,13 @@ techo de una partición = 1 / S          ρ = λ · S
 
 donde `S` es el costo medio por orden, `λ` la tasa de llegada y `ρ` la fracción del tiempo que el escritor pasa ocupado. Medir la capacidad con 13 µs mide un `TreeMap`, no un motor de bolsa. Como no existe todavía una estimación del costo real, `BusinessLogicModel` lo convierte en un **parámetro que se barre**. Así el entregable deja de ser un número suelto y pasa a ser un presupuesto: falsable hoy, sin conocer la lógica de negocio.
 
-El modelo respeta dos reglas. **Quema CPU en vez de dormir**, porque un `sleep` devuelve el núcleo, no ensucia la caché ni compite con gRPC, y en la máquina virtual su granularidad es de milisegundos. Y **muestrea una distribución sesgada** en vez de una constante. El costo real depende de los datos: una orden que no cruza es barata, una que barre cinco niveles es cara. Esa variabilidad pesa en la fila tanto como la del arribo, y se mide con Cs² — el equivalente de Ca² del lado del servicio.
+El modelo respeta dos reglas. **Quema CPU en vez de dormir**: a diferencia del trabajo real, un `sleep` devuelve el núcleo, no ensucia la caché y no compite con gRPC, y en la máquina virtual su granularidad es de milisegundos — cuatro formas de no parecerse a lo que se quiere modelar. Y **muestrea una distribución sesgada** en vez de una constante. El costo real depende de los datos: una orden que no cruza es barata, una que barre cinco niveles es cara. Esa variabilidad pesa en la fila tanto como la del arribo, y se mide con Cs² — el equivalente de Ca² del lado del servicio.
 
-Por eso `BIZ_MICROS` fija la **media**, no el costo de cada orden. La distribución por defecto es una mezcla de tres clases (90 % ×1, 9 % ×6, 1 % ×30) con Cs² = 3,34, más variable que una exponencial —que da 1— y acotada por construcción en unas 17 veces la media. A S = 8 ms, una orden cuesta **4,6, 27,6 o 138 ms** según su clase.
+Por eso `BIZ_MICROS` fija la **media**, no el costo de cada orden. La distribución por defecto es una mezcla de tres clases (90 % ×1, 9 % ×6, 1 % ×30) con Cs² = 3,34, más variable que una exponencial, cuya Cs² es 1, y acotada por construcción en unas 17 veces la media. A S = 8 ms, una orden cuesta **4,6, 27,6 o 138 ms** según su clase.
 
 La forma `lognormal` ofrece una segunda distribución, continua y **sin cota superior**, con la misma media y el mismo Cs². Existe para una sola pregunta: *¿el resultado depende de la forma, o solo de sus dos primeros momentos?* Medido, la respuesta es mixta. El percentil 95 es robusto —74,7 contra 63,3 ms, los dos muy por debajo del criterio— pero la cola no: el percentil 99,9 empeora un 23 %. **La mezcla subestima la cola justamente por estar acotada.**
 
-Y el resultado que reordena el diseño. El presupuesto es de 12,4 ms repartiendo el pico entre dos particiones y 8,5 ms con todo el pico en una. Eso es **1,46×, no 2×**, y la razón es aritmética y no una ineficiencia: **repartir reduce la espera, nunca el servicio.** Bajar ρ acorta la fila, pero el tiempo de servicio es latencia también, y subir el presupuesto lo sube directo. El corolario incomoda: **ninguna cantidad de particiones permite que una orden que cuesta 200 ms cumpla un contrato de 200 ms.**
+Y el resultado que reordena el diseño. El presupuesto es de 12,4 ms repartiendo el pico entre dos particiones y 8,5 ms con todo el pico en una. Eso es **1,46×, no 2×**, y la razón es aritmética y no una ineficiencia: **repartir reduce la espera, nunca el servicio.** Bajar ρ acorta la fila, pero el tiempo de servicio es latencia también, y cada milisegundo que se añade al presupuesto se paga entero, sin repartir. El corolario incomoda: **ninguna cantidad de particiones permite que una orden que cuesta 200 ms cumpla un contrato de 200 ms.**
 
 Una última precaución. La semilla del generador aleatorio es `42 + índice de partición`, **distinta en cada una a propósito**. Con una semilla común todas sacaban la misma secuencia de costos. Como reciben la misma tasa, las órdenes caras caían sobre todas a la vez en lugar de repartirse en el tiempo, y eso engordaba la cola. La lógica real no está correlacionada entre particiones. La semilla efectiva se imprime al arrancar.
 

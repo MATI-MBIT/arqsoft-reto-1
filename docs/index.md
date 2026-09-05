@@ -24,6 +24,7 @@ Documentación del **Reto 1** (ARTI4109 · Arquitectura de Software): validar el
 ### Versiones técnicas (todas las cifras, todas las fórmulas, todos los detalles)
 
 - **[Experimento E01](experimento-e01.html)** — la ficha del experimento (espejo de Helix): hipótesis H1/H2/H2b, escenarios de calidad vinculados, fases F1–F4, métricas y criterios de éxito.
+- **[Experimento E01 — Las hipótesis](experimento-e01_v3.html)** — enfoque dedicado a las tres hipótesis como "apuestas de diseño", reformuladas según retroalimentación de experto, y cómo se modificó el experimento para responder esa retroalimentación (N mínimo, aislamiento del sharding verificado empíricamente, arribo estocástico, replicabilidad).
 - **[Implementación](implementacion.html)** — cómo está construido el PoC: componentes y flujo de una orden, mapeo táctica → código, configuración, metodología de medición, despliegue y limitaciones.
 - **[Evidencia de corridas](evidencia-corridas.html)** — resultados detallados de cada corrida, cómo leer los números y salidas crudas.
 - **[Construcción de componentes](construccion-componentes.html)** — cómo se construyó cada pieza del monorepo por separado.

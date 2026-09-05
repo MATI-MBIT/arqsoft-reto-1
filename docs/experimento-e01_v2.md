@@ -39,7 +39,7 @@ flowchart LR
       T["hilos gRPC\npublican en paralelo"] --> RB["ring buffer\npreasignado"] --> W["único hilo escritor\nprocesa en orden"] --> L["libro en memoria\nmatching precio-tiempo"]
     end
     L --> Rta["respuesta al cliente\np95 ≤ 200 ms"]
-    W -.->|"fuera del camino crítico\n(no implementado en este PoC)"| J["journaling + notificación"]
+    W -.->|"fuera del camino crítico\n(no implementado en este PoC)"| J["notificación"]
 ```
 
 ## H2 — El sharding por símbolo absorbe el pico de 5×

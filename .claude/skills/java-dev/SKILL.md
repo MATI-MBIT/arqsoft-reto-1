@@ -20,8 +20,8 @@ Dependencias van al catálogo `gradle/libs.versions.toml` (`[versions]`/`[librar
 ```
 make build          # ./gradlew build — compila los 3 módulos + genera stubs proto
 make test           # ./gradlew test  — ver "Huecos conocidos": hoy no hay src/test
-make run-shard SHARD_ID=0 PORT=9090   # shard local sin Docker
-make run-router SHARDS=localhost:9090 # router local sin Docker
+./gradlew :services:matching-engine:run   # shard local sin Docker
+./gradlew :services:ingest-router:run     # router local sin Docker
 make up / up-n1 / up-n4               # topología completa vía Docker Compose
 ```
 

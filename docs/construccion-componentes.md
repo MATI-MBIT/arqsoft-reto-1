@@ -121,7 +121,9 @@ El tablero se lee de arriba hacia abajo: primero si la corrida cumple —peor p9
 - **Umbrales como criterio ejecutable.** La corrida falla en vivo si el percentil 95 supera el límite, o si aparece un rechazo en las fases oficiales. El criterio de éxito no se evalúa después leyendo una tabla: lo evalúa la corrida.
 - **Los rechazos son una métrica de primera clase.** Un contador propio los cuenta, así que la señal de la fila con límite es un dato y no una suposición.
 
-**Los cinco scripts** convierten en un comando cada pregunta que el experimento hace. Uno corre el ciclo completo. Los otros cuatro barren el costo por orden hasta encontrar el presupuesto, comparan cuotas de CPU, comparan las tres disposiciones de la bitácora y perfilan una fase con la grabadora de diagnóstico de la máquina virtual.
+**El plan de corridas es un archivo de datos.** `load/plan.tsv` tiene una fila por corrida: su fase, cuántas particiones levanta, cuánto cuesta una orden, qué criterio la decide y **a qué hipótesis sirve**. Esa última columna es la que ordena el informe final.
+
+Antes esto eran seis scripts de shell, uno por pregunta, cada uno con su copia del ciclo *levantar → correr → capturar → extraer* y sus propias reglas sobre qué hace válida una corrida. Seis copias de la misma lógica son seis sitios donde puede divergir. Ahora hay **un solo orquestador** que lee el plan, y agregar un punto de medida es agregar una línea.
 
 **Los cuatro scripts de comparación comparten un guardián de validez**, y esa es la pieza más importante del arnés. Antes de leer una cifra, verifica que todas las respuestas hayan sido correctas y que el motor haya alcanzado a publicar su resumen final. Sin ese guardián, una topología muerta produce números excelentes: un servicio caído responde más rápido que uno vivo. Esa corrida existió, se reportó y estuvo a punto de convertirse en una conclusión.
 
@@ -131,7 +133,7 @@ El tablero se lee de arriba hacia abajo: primero si la corrida cumple —peor p9
 
 Todo el ciclo de vida está expuesto como comandos autodocumentados y agrupados por sección: compilar, levantar cada topología, abrir el tablero, correr cada fase, los cuatro estudios que producen las tablas de la evidencia, y verificar que los límites de recursos se aplicaron de verdad.
 
-La regla que decide qué entra: **un comando existe si produce evidencia que la documentación cita, o si es parte del ciclo diario.** Lo que solo parametrizaba a otro comando se pasa como variable —`make f4 PEAK=500`, no un comando por cada tasa—, y con ese criterio la lista bajó de treinta a veintitrés. La convención de fondo sigue siendo la misma: **ningún paso que se repite se ejecuta a mano.**
+La regla que decide qué entra: **un comando existe si la ficha del experimento lo exige, o si es parte del ciclo diario.** La ficha manda sobre la documentación —usar la documentación como referencia fue un error que dejó fuera dos corridas que H2 necesita—, y todo lo que solo parametriza a otra cosa vive en el plan. Con ese criterio la lista bajó de treinta a diecisiete. La convención de fondo sigue siendo la misma: **ningún paso que se repite se ejecuta a mano.**
 
 ## 9. El sitio de documentación
 

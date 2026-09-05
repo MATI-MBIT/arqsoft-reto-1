@@ -119,9 +119,9 @@ El router es **sin estado**: no conoce libros ni órdenes. Por eso en el diseño
 
 **Volúmenes.** Ocho con nombre: `journal-0..3` para las bitácoras y `jfr-0..3` para las grabaciones. La bitácora no puede escribirse en la capa del contenedor, que es un sistema de archivos superpuesto y no representa a un disco.
 
-**Comandos.** El `Makefile` sigue una regla: un comando existe si produce evidencia que esta documentación cita, o si es parte del ciclo diario. Lo que solo parametriza a otro se pasa como variable — `make f4 PEAK=500`, no un comando por tasa.
+**Comandos.** El **qué** se corre es dato y el **cómo** es código. `load/plan.tsv` tiene una fila por corrida —su fase, sus particiones, su costo por orden, su criterio y la hipótesis a la que sirve— y `load/experimento.sh` lo ejecuta. Agregar un punto de medida es agregar una línea, no escribir un script.
 
-El ciclo es `make build`, `make up` / `up-n4`, `make smoke`, `make f1|f2|f4`, `make e2e`, `make tablero`, `make logs`, `make down`. Los cuatro estudios que producen las tablas de la evidencia son `sweep-service` y `sweep-hot` (el presupuesto), `compare-cpus`, `compare-journal` y `profile-jfr`. Y `verify-limits`, que comprueba en el cgroup lo que el YAML solo declara. Pasar de 2 a 4 particiones no toca código: el perfil `n4` levanta dos contenedores más y `make up-n4` le pasa al router la lista de cuatro.
+El ciclo es `make plan` para ver qué hay, `make experimento` para correrlo todo, `make oficial` para solo las fases contractuales y `make grupo G=<grupo>` para una parte. Alrededor: `make build`, `make up` / `up-n4`, `make smoke`, `make tablero`, `make logs`, `make down`, y `make verify-limits`, que comprueba en el cgroup lo que el YAML solo declara. Pasar de 2 a 4 particiones no toca código: es la columna `n` del plan.
 
 ## 7. Cómo se mide, y por qué la medida es válida
 

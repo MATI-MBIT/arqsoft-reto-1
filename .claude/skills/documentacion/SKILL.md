@@ -66,7 +66,7 @@ Toda documentación que generes con este skill **debe basarse únicamente en hec
 - **Negrita** para el término o la cifra que sostiene la frase, no para frases completas.
 - **Tablas** para cualquier comparación estructurada (config, decisiones, resultados por fase) en vez de listas prosificadas.
 - **Mermaid nativo** (`flowchart`, `sequenceDiagram`, `xychart-beta`) — el sitio lo renderiza vía `mermaid.version: "10.9.0"` en `docs/_config.yml`, no hace falta imagen ni librería extra. Usa `flowchart LR` para pipelines/flujos y `xychart-beta` para comparar una métrica entre fases.
-- **Toda cifra debe tener fuente**: una corrida (`make f2`, `make sweep-service`), un archivo de resultados, o una medición en el código citada con línea. Una afirmación sin número o sin fuente no entra a `evidencia-corridas.md`.
+- **Toda cifra debe tener fuente**: una corrida (una fila de `load/plan.tsv`, corrida con `make grupo G=…`), un archivo de resultados, o una medición en el código citada con línea. Una afirmación sin número o sin fuente no entra a `evidencia-corridas.md`.
 - **Limitaciones y deuda son su propia sección explícita**, nunca una omisión silenciosa — sigue el patrón `implementacion.md#8` / `experimento-e01.md` (tabla "Diferencias entre el diseño y lo construido"): declara qué se diseñó pero no se implementó, y por qué.
 
 ## Correcciones: se anotan, no se reescriben en silencio

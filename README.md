@@ -30,8 +30,8 @@ Monorepo del **PoC del experimento E01** (Reto 1, ARTI4109): validar el patrón 
 │   └── observabilidad/    Config de Prometheus y tablero de Grafana aprovisionado
 ├── load/
 │   ├── k6/poc.js          Generador: calentamiento + F1 / F2 / F3 / F4 en modelo abierto
-│   ├── run-e2e.sh         El ciclo oficial completo en un comando
-│   └── *.sh               Los cuatro estudios (presupuesto, CPU, bitácora, JFR)
+│   ├── plan.tsv           El plan de corridas: una fila por corrida, con su hipótesis
+│   └── experimento.sh     El único orquestador: lee el plan y lo ejecuta
 ├── docs/                  Documentación del experimento y de la implementación
 └── Makefile               Los comandos del proyecto (make help)
 ```
@@ -52,28 +52,25 @@ make tablero                  # abre la evidencia en vivo en Grafana
 `BIZ_MICROS` es el costo medio por orden en µs. **No tiene default útil:** en 0 la
 lógica de negocio está apagada y el p95 que salga no es el de un motor real.
 
-## Comandos (`make help` los agrupa por sección)
+## Comandos
 
-Un comando existe si produce evidencia que la documentación cita, o si es parte
-del ciclo diario. Lo que solo parametriza a otro comando se pasa como variable:
-`make f4 PEAK=500`, no un comando por tasa.
+**Qué** se corre vive en [`load/plan.tsv`](load/plan.tsv) — una fila por corrida, con la hipótesis a la que sirve. **Cómo** se corre, en `load/experimento.sh`. El Makefile solo tiene atajos, así que agregar un punto de medida es agregar una línea al plan, no un comando nuevo.
 
 | Comando | Qué hace |
 |---|---|
-| **`make e2e BIZ_MICROS=8000`** | **El ciclo oficial en un comando** (~1h40m): F1 → F2+F3 → F4 → exploración del quiebre. Archiva salida cruda y JSON por fase en `load/k6/results/<timestamp>/`, alimenta el tablero, y **sale con error si alguna fase oficial incumple** |
-| **`make e2e-smoke`** | El mismo ciclo en corto (~25 min): la regresión a correr tras cada cambio |
-| `make build` / `test` / `clean` | Ciclo Gradle. `clean` borra también los volúmenes, incluido el histórico de Prometheus |
+| **`make plan`** | Lista las 40 corridas del experimento y a qué hipótesis sirve cada una |
+| **`make experimento`** | **Todo el plan** (~4h30m): las 3 fases contractuales largas y los 37 puntos de estudio |
+| `make oficial` | Solo las 3 fases contractuales (~1h30m): régimen, pico de 30 min y activo caliente |
+| `make grupo G=h2-quiebre` | Un grupo del plan. Los grupos salen de `make plan` |
+| `make smoke` | Humo de ~1,5 min para verificar el montaje antes de invertir horas |
 | `make up` / `up-n4` | Topología con 2 o 4 particiones, más Prometheus y Grafana |
-| `make down` / `ps` / `logs` | Operación. `down` conserva el histórico de Prometheus |
-| **`make tablero`** | Abre el tablero de Grafana con la evidencia en vivo |
+| **`make tablero`** | Abre el tablero de Grafana con la evidencia |
 | **`make verify-limits`** | Lee el cgroup real y lo contrasta con lo declarado. `deploy.resources` se ignora en silencio fuera de Swarm, así que el YAML no prueba nada |
-| `make smoke` | Verificación de ~1,5 min del montaje completo |
-| `make f1` / `f2` / `f4` | Las fases sueltas. F1 y F2 traen criterio ejecutable; F4 es exploratoria (`make f4 PEAK=500`) |
-| **`make sweep-service`** | Barre el costo por orden y produce el **presupuesto**: el mayor S con el que el patrón aún cumple. Medido: **12,4 ms/orden** con N=2 |
-| `make sweep-hot` | El mismo barrido con todo el pico en una sola partición: **8,5 ms/orden** |
-| `make compare-cpus` | Confina cada partición a 0 / 2 / 1 / 0,5 núcleos y mide el efecto. Con un núcleo el p95 no cambia; con medio se degrada un 72 % |
-| `make compare-journal` | Bitácora `off` / `paralelo` / `serie`: prueba la cláusula de H1 sobre mantenerla fuera del camino crítico |
-| `make profile-jfr` | Perfila una fase con Java Flight Recorder para atribuir los atascos aislados a GC, JIT o safepoints |
+| `make down` / `ps` / `logs` | Operación. `down` conserva el histórico de Prometheus |
+| `make build` / `test` / `clean` | Ciclo Gradle. `clean` borra también los volúmenes |
+| `make docs-serve` | Previsualiza el sitio de documentación |
+
+Una corrida interrumpida se reanuda sobre su propio directorio: `RESULTS_DIR=<dir> ./load/experimento.sh`. Las corridas ya completas se omiten — es válido porque cada una levanta su propia topología y no comparte estado con las demás.
 
 ## Cómo se mide
 
@@ -85,7 +82,7 @@ k6 mide la latencia extremo a extremo del RPC con umbral `p(95)<200`, en modelo 
 
 El shard publica ventanas de 10 s para ver la evolución, y un `ACUMULADO` de toda la fase al cerrar. Solo el acumulado es comparable cifra a cifra con k6, y su resta es el costo de transporte. Un `status=REJECTED` es la señal de backpressure de la cola acotada — en F1–F3 el criterio exige 0 rechazos.
 
-El motor **registra cada orden** en un journal de solo-anexado cuando `JOURNAL=paralelo` o `serie`, y admite **cuotas de CPU** por partición (`SHARD_CPUS`) y **grabación con JFR** (`make profile-jfr`).
+El motor **registra cada orden** en una bitácora de solo-anexado cuando `JOURNAL=paralelo` o `serie`, y admite **cuotas de CPU** por partición (`SHARD_CPUS`) y **grabación con Java Flight Recorder**. Las tres cosas son columnas del plan, no comandos aparte.
 
 **Ninguna cifra se lee sin su `S` al lado**: el PoC no implementa la lógica de negocio, y ese costo por orden gobierna el techo del shard (`1/S`), el reparto motor/transporte y si la partición caliente amenaza el SLA. Se declara con `BIZ_MICROS`. Detalle completo en [`docs/implementacion.md`](docs/implementacion.md) y resultados en [`docs/evidencia-corridas.md`](docs/evidencia-corridas.md).
 

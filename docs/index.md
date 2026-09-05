@@ -31,10 +31,11 @@ Cuatro documentos, en el orden en que conviene leerlos:
 ## Ejecutar el proyecto
 
 ```bash
-make build     # compila los 3 módulos (Gradle + Java 21)
-make up        # router :8080 + 2 shards LMAX (Docker Compose)
-make smoke     # verificación de ~1 min con k6
-make f1        # corrida oficial F1 (baseline ASR-02)
+make build       # compila los 3 módulos (Gradle + Java 21)
+make up          # router :8080 + 2 particiones + Prometheus + Grafana
+make smoke       # verificación de ~1,5 min del montaje
+make plan        # qué corridas hay y a qué hipótesis sirve cada una
+make experimento # el plan completo (~4h30m)
 ```
 
 `make help` lista todos los comandos. El detalle de las corridas de carga está en el [README de load](https://github.com/MATI-MBIT/arqsoft-reto-1/blob/main/load/README.md).

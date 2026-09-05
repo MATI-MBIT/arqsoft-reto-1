@@ -209,7 +209,11 @@ def barras(titulo, series, x, y, w, h, desc, unidad="s", dec=1, tope=LIMITE, pas
             "targets": [objetivo(e, l, chr(65 + i), True)
                         for i, (l, e) in enumerate(sin_repetidas(titulo, series))],
             "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
-                        "orientation": "horizontal", "displayMode": "gradient",
+                        # "basic", no "gradient": el gradiente pinta verde->rojo dentro
+                        # de CADA barra, asi que las cuatro salian identicas y el color
+                        # no distinguia la que cumple de la que no. Con "basic" la barra
+                        # toma UN color, el del umbral que le corresponde.
+                        "orientation": "horizontal", "displayMode": "basic",
                         "showUnfilled": True, "valueMode": "color", "namePlacement": "top",
                         "minVizWidth": 8, "minVizHeight": 22},
             "fieldConfig": {"defaults": {"unit": unidad, "decimals": dec, "min": 0, "max": tope,
@@ -219,14 +223,36 @@ def barras(titulo, series, x, y, w, h, desc, unidad="s", dec=1, tope=LIMITE, pas
                             "overrides": []}}
 
 
-def p95_de(ids):
-    """El peor p95 por ventana de esas corridas. Más estricto que el p95 de la corrida."""
-    return 'max(max_over_time(k6_grpc_req_duration_p95{corrida=~"%s",%s}[$__range]))' % (
-        "|".join(ids), MEDIDO)
+def p95_de(f):
+    """El p95 de la corrida, reconstruido desde las ventanas que k6 empuja.
+
+    k6 no publica a Prometheus el p95 de la corrida entera: empuja el p95 de
+    cada ventana de 5 s. Reconstruirlo pide dos cuidados, y los dos costaron una
+    lectura equivocada.
+
+    · El escenario, EXPLÍCITO. Filtrar por «lo que no sea calentamiento» mete
+      también el escenario del retorno y su transitorio: el tablero mostraba
+      234,6 ms donde la tabla oficial decía 187,1.
+    · El percentil 90 de esas ventanas, no el máximo. El máximo es el peor
+      instante de la corrida y siempre queda por encima del p95 real. El p90 de
+      las ventanas lo sigue dentro del 5 % --187,1 contra 192,7; 194,3 contra
+      194,3; 31,1 contra 31,7-- que es menos que el ruido del banco.
+
+    La cifra exacta vive en resultados.tsv; esto es su reflejo en el tablero.
+    """
+    return ('quantile_over_time(0.90, k6_grpc_req_duration_p95'
+            '{corrida="%s",scenario="%s"}[$__range])' % (f["id"], f["fase"]))
 
 
 def mediana_motor(ids):
-    return 'max(max_over_time(engine_window_latency_micros{quantile="0.5",corrida=~"%s"}[$__range]))' % "|".join(ids)
+    """La mediana típica del motor: el percentil 50 de las ventanas, no su máximo.
+
+    El máximo de las medianas lo fija cualquier ventana anómala --la de la
+    suspensión de la máquina, por ejemplo-- y deja de describir la corrida."""
+    # El max() de fuera colapsa las particiones: sin el, la consulta devuelve una
+    # serie por particion y las dos heredan la misma etiqueta.
+    return ('max(quantile_over_time(0.50, engine_window_latency_micros'
+            '{quantile="0.5",corrida=~"%s"}[$__range]))' % "|".join(ids))
 
 
 def construir(filas):
@@ -234,7 +260,7 @@ def construir(filas):
     for f in filas:
         por.setdefault(f["grupo"], []).append(f)
     ids = lambda g: [f["id"] for f in por.get(g, [])]
-    ser = lambda fs: [(corto(f), p95_de([f["id"]])) for f in fs]
+    ser = lambda fs: [(corto(f), p95_de(f)) for f in fs]
 
     def lat(fs, etiq=None, con_retorno=False):
         """Una serie por consulta, con el escenario EXPLÍCITO.

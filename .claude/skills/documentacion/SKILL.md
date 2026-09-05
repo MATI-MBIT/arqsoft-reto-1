@@ -1,6 +1,6 @@
 ---
 name: documentacion
-description: Conventions for writing or updating documentation in this repo — the docs/ Jekyll site (just-the-docs), the top-level README, and load/README.md. Covers front matter and nav_order, which doc owns which content, the ADD 3.0 tab structure of experimento-e01.md (it mirrors Helix, the canonical source), the mermaid/table-heavy style, the traceability rule (every number needs a source), how corrections get recorded instead of silently overwritten, and the three-level (beginner/intermediate/expert) format for explanatory content, written in plain, human language. Use whenever adding a doc page, updating experiment results, documenting a new component, editing README.md, or explaining a concept/decision to someone.
+description: Conventions for writing or updating documentation in this repo — the docs/ Jekyll site (just-the-docs), the top-level README, and load/README.md. Covers front matter and nav_order, which doc owns which content, the ADD 3.0 tab structure, the mermaid/table-heavy style, the iron rule of truth-based documentation (every fact must be verifiable), and the two-level (intermediate/expert) format for explanatory content. Intermediate targets technical teams new to this project; expert targets implementers. Both levels use real data, real decisions, real limitations — never inventing or omitting facts. Use whenever adding a doc page, updating experiment results, documenting a new component, editing README.md, or explaining a concept/decision to someone.
 ---
 
 # Documentación — arqsoft-reto-1
@@ -21,18 +21,17 @@ La documentación no es prosa libre: cada afirmación cuantitativa debe poder ra
 
 Antes de escribir, ubica cuál de estos documentos es el dueño del contenido. Si no encaja en ninguno, es señal de que falta una sección, no un documento nuevo — este set es deliberadamente pequeño.
 
-## Tres niveles de audiencia
+## Dos niveles de audiencia — ambos técnicos
 
-Toda documentación **explicativa** que generes con este skill —una guía nueva, una sección que te pidan explicar, un README, material de onboarding— se entrega en **tres niveles que cubren la misma información completa**, no un resumen seguido del detalle. Cada nivel responde las mismas preguntas de principio a fin; lo único que cambia es cuánto necesita saber el lector de antemano para seguirlo.
+Toda documentación **explicativa** que generes con este skill —una guía nueva, una sección que te pidan explicar, un README, material de onboarding— se entrega en **dos niveles que cubren la misma información completa**, dirigidos a audiencias técnicas, no a públicos generales. Cada nivel responde las mismas preguntas de principio a fin; lo único que cambia es cuánto detalle de implementación incluye.
 
-- **Nivel 1 — Para cualquiera.** Cero jerga sin explicar: si aparece un término técnico (shard, p95, ring buffer, backpressure), se explica ahí mismo con una analogía cotidiana, no con una definición de manual. "Sencillo" no es "incompleto" — no se omite nada importante, se prioriza la idea sobre el mecanismo interno: el qué y el por qué, no la clase Java que lo implementa. Sin código, sin nombres de clase, sin fórmulas.
-  Ejemplo de tono para este proyecto: en vez de "el router aplica sharding determinístico `hash(símbolo) % N`", algo como *"cada acción bursátil tiene siempre el mismo encargado fijo — como la recepción de un hotel que ya sabe a qué piso mandar a cada huésped según su apellido, sin tener que preguntar cada vez"*.
-- **Nivel 2 — Para quien programa pero no vive en este sistema.** Vocabulario técnico correcto, explicado la primera vez que aparece, sin analogías infantilizadas. Cubre el cómo general —patrones, decisiones, trade-offs principales—, con nombres de componentes y diagramas, pero sin fórmulas derivadas ni líneas de código citadas.
-- **Nivel 3 — Para quien va a tocar o decidir sobre el sistema.** Todo el detalle: nombres de clase y archivo con línea, fórmulas (`techo = 1/S`, `ρ = λ·S`), cifras exactas con su fuente, trade-offs cuantificados, limitaciones declaradas. Es el nivel que ya sigue el resto de las reglas de este documento (tablas, mermaid, trazabilidad numérica) — el nivel por defecto de los documentos técnicos existentes del repo.
+- **Nivel 2 — Intermedio: para quien programa pero no vive en este sistema.** Vocabulario técnico correcto (sin jerga sin explicar), con nombres de componentes, patrones, decisiones y diagramas. Cubre el cómo general —qué se hace y por qué—, pero sin fórmulas derivadas, sin código citado, sin líneas de archivo específicas. El público objetivo es un equipo técnico que se acerca al proyecto sin ser especialista en su arquitectura. Cifras reales medidas, tablas y gráficos para visualización.
 
-**Cómo entregarlos:** si no te piden un nivel específico, entrega los tres, en el mismo archivo, bajo encabezados `## Nivel 1 — ...`, `## Nivel 2 — ...`, `## Nivel 3 — ...`, en ese orden. Si piden un nivel puntual, entrega solo ese, pero autocontenido — nunca "ver nivel 3 para más detalle".
+- **Nivel 3 — Experto: para quien va a tocar o decidir sobre el sistema.** Todo el detalle: nombres exactos de clase y archivo con línea, fórmulas (`techo = 1/S`, `ρ = λ·S`), cifras exactas con su fuente, derivaciones paso a paso, trade-offs cuantificados, limitaciones declaradas explícitamente. Es el nivel que ya sigue el resto de las reglas de este documento (tablas, mermaid, trazabilidad numérica) — el nivel por defecto de los documentos técnicos existentes del repo.
 
-**Excepción:** `docs/experimento-e01.md` conserva su estructura fija de pestañas Helix (ver abajo) porque es el espejo de una plataforma externa — no se fragmenta en tres niveles. Si alguien pide una versión nivel 1 de ese contenido (por ejemplo para explicárselo a alguien no técnico), va en un documento aparte que enlaza al original, sin reemplazarlo.
+**Cómo entregarlos:** si no te piden un nivel específico, entrega ambos en el mismo archivo, bajo encabezados `## Nivel 2 — ...` y `## Nivel 3 — ...`, en ese orden. Si piden un nivel puntual, entrega solo ese, pero autocontenido — nunca "ver nivel 3 para más detalle".
+
+**Excepción:** `docs/experimento-e01.md` conserva su estructura fija de pestañas Helix porque es el espejo de una plataforma externa — no se fragmenta en dos niveles. Si alguien pide una versión nivel 2 de ese contenido, va en un documento aparte que enlaza al original, sin reemplazarlo.
 
 ## `docs/experimento-e01.md` sigue las pestañas de Helix (ADD 3.0)
 
@@ -49,9 +48,20 @@ Pestaña **Results & analysis**: tabla de resultados por fase con veredicto, Ana
 - **Cómo se construyó** — tecnología y mecánica concreta.
 - **Decisiones** — tabla `Decisión | Por qué`, solo las no obvias (nunca "usamos Java porque es el lenguaje del curso").
 
+## Base exclusiva en la verdad
+
+Toda documentación que generes con este skill **debe basarse únicamente en hechos que se pueden verificar:**
+
+- **Cifras:** toda medida debe tener una fuente identificable (corrida de prueba específica, línea de código, archivo de resultados). "El techo es 125 órd/s" va acompañado de "medido en F4-explore con S = 8 ms, 24.345 órdenes entregadas de 1.000 ofrecidas".
+- **Decisiones:** al documentar una elección de diseño, cita por qué se tomó (un trade-off, una limitación del hardware, una restricción del requisito), no inventes motivaciones posteriores.
+- **Limitaciones:** sé explícito sobre qué **no** se midió, qué **no** se implementó, qué sigue sin probar. Si algo está fuera de alcance, decláralo. Si algo es una hipótesis sin evidencia, dilo.
+- **Ejemplos:** usa números y hechos reales del proyecto. No inventes escenarios. Si necesitas un ejemplo hipotético para explicar un concepto, marca claramente que es hipotético ("si, hipotéticamente, el costo fuera X...").
+
+**Por qué:** la credibilidad del documento vive o muere con esta regla. Un número que se verifica, un trade-off que se explica, una limitación que se admite — todo eso construye confianza. Una cifra sin fuente, una decisión inventada, una limitación ocultada — todo eso destruye confianza. No hagas afirmaciones que no puedas respaldar.
+
 ## Estilo
 
-- **Suena humano, no a IA** — esto aplica a los tres niveles, incluido el experto. Ritmo de frase variable, no todas del mismo largo. Cero relleno de piloto automático ("es importante destacar que", "cabe mencionar", "en resumen" al final de cada sección). No repitas la misma estructura de párrafo en cada punto. Usa ejemplos concretos del propio proyecto (cifras reales de las corridas, nombres reales de símbolos/clases) en vez de ejemplos abstractos genéricos — un ejemplo inventado se nota y le resta credibilidad al resto.
+- **Suena humano, no a IA** — esto aplica a ambos niveles. Ritmo de frase variable, no todas del mismo largo. Cero relleno de piloto automático ("es importante destacar que", "cabe mencionar", "en resumen" al final de cada sección). No repitas la misma estructura de párrafo en cada punto. Usa ejemplos concretos del propio proyecto (cifras reales de las corridas, nombres reales de símbolos/clases, decisiones documentadas) en vez de ejemplos abstractos genéricos — un ejemplo inventado se nota y le resta credibilidad al resto.
 - **Español**, denso, sin relleno. Números con unidad siempre (`p95 = 74,32 ms`, no "74.32"); usa coma decimal como el resto del repo.
 - **Negrita** para el término o la cifra que sostiene la frase, no para frases completas.
 - **Tablas** para cualquier comparación estructurada (config, decisiones, resultados por fase) en vez de listas prosificadas.

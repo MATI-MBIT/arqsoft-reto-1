@@ -21,21 +21,22 @@ Documentación del **Reto 1** (ARTI4109 · Arquitectura de Software): validar el
 
 ## Contenido
 
-### Versiones técnicas (todas las cifras, todas las fórmulas, todos los detalles)
+### Documentos principales
 
-- **[Experimento E01](experimento-e01.html)** — la ficha del experimento (espejo de Helix): hipótesis H1/H2/H2b, escenarios de calidad vinculados, fases F1–F4, métricas y criterios de éxito.
+- **[Experimento E01](experimento-e01.html)** — la ficha técnica del experimento (espejo de Helix): hipótesis H1/H2/H2b sin reformular, escenarios de calidad vinculados, fases F1–F4, métricas y criterios de éxito.
+- **[Experimento E01 — Hipótesis reformuladas](experimento-e01_v3.html)** — las tres hipótesis reescritas como "apuestas de diseño" (si [patrón] → entonces [requisito enlazado] → porque [mecanismo]), en dos niveles: intermedio (qué patrón se propone y por qué) y experto (detalles técnicos de implementación). Cada afirmación tiene fuente rastreable.
 - **[Implementación](implementacion.html)** — cómo está construido el PoC: componentes y flujo de una orden, mapeo táctica → código, configuración, metodología de medición, despliegue y limitaciones.
 - **[Evidencia de corridas](evidencia-corridas.html)** — resultados detallados de cada corrida, cómo leer los números y salidas crudas.
 - **[Construcción de componentes](construccion-componentes.html)** — cómo se construyó cada pieza del monorepo por separado.
 
-### Versiones intermedias (para equipos técnicos sin especialización en arquitectura)
+### Versiones intermedias (para equipos técnicos nuevos en el proyecto)
 
 Mismo contenido que las versiones técnicas, pero sin código citado, sin fórmulas derivadas paso a paso, sin líneas de archivo — pensadas para quien programa pero no vive todavía en este sistema:
 
-- **[Experimento E01](experimento-e01_v2.html)** — qué se probó, las hipótesis de diseño H1/H2/H2b, las tres fases principales y el veredicto.
-- **[Implementación](implementacion_v2.html)** — los tres componentes, cómo viaja una orden, la metodología de medición y las limitaciones.
-- **[Evidencia de corridas](evidencia-corridas_v2.html)** — los resultados, cómo interpretarlos, qué se encontró y las limitaciones de la medición.
-- **[Construcción de componentes](construccion-componentes_v2.html)** — qué tecnología se usó, qué decisiones se tomaron y cómo encaja todo.
+- **[Experimento E01 (versión intermedia)](experimento-e01_v2.html)** — qué se probó, las hipótesis de diseño H1/H2/H2b, las tres fases principales y el veredicto.
+- **[Implementación (versión intermedia)](implementacion_v2.html)** — los tres componentes, cómo viaja una orden, la metodología de medición y las limitaciones.
+- **[Evidencia de corridas (versión intermedia)](evidencia-corridas_v2.html)** — los resultados, cómo interpretarlos, qué se encontró y las limitaciones de la medición.
+- **[Construcción de componentes (versión intermedia)](construccion-componentes_v2.html)** — qué tecnología se usó, qué decisiones se tomaron y cómo encaja todo.
 
 ## Ejecutar el proyecto
 

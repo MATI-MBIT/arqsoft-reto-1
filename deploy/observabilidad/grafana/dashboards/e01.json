@@ -16,21 +16,7 @@
     "to": "now"
   },
   "templating": {
-    "list": [
-      {
-        "name": "corrida",
-        "label": "Corrida (solo para la procedencia de abajo)",
-        "type": "custom",
-        "query": "OFICIAL · régimen · 17 órd/s · 12 min : of-f1-n2,OFICIAL · pico 5× · 84 órd/s · 30 min : of-f2-n2,OFICIAL · todo el pico en UN activo : of-f4-n2,¿Cuántas bastan? · 1 partición · 84 órd/s : min-n1,¿Cuántas bastan? · 2 particiones · 84 órd/s : min-n2,¿Cuántas bastan? · 4 particiones · 84 órd/s : min-n4,Quiebre · 1 partición · 90 órd/s : q-n1-090,Quiebre · 1 partición · 100 órd/s : q-n1-100,Quiebre · 1 partición · 110 órd/s : q-n1-110,Quiebre · 1 partición · 120 órd/s : q-n1-120,Quiebre · 2 particiones · 180 órd/s : q-n2-180,Quiebre · 2 particiones · 200 órd/s : q-n2-200,Quiebre · 2 particiones · 220 órd/s : q-n2-220,Quiebre · 2 particiones · 240 órd/s : q-n2-240,Quiebre · 4 particiones · 360 órd/s : q-n4-360,Quiebre · 4 particiones · 400 órd/s : q-n4-400,Quiebre · 4 particiones · 440 órd/s : q-n4-440,Quiebre · 4 particiones · 480 órd/s : q-n4-480,Activo caliente · 84 órd/s en UN activo : cal-084,Activo caliente · 100 órd/s en UN activo : cal-100,Activo caliente · 110 órd/s en UN activo : cal-110,Activo caliente · 120 órd/s en UN activo : cal-120,Bitácora · apagada : bit-off,Bitácora · en paralelo : bit-paralelo,Bitácora · en serie (camino crítico) : bit-serie,CPU · sin límite : cpu-libre,CPU · 2 núcleos : cpu-2,CPU · 1 núcleo : cpu-1,CPU · medio núcleo : cpu-05,Presupuesto · orden de 5 ms : pre-05,Presupuesto · orden de 10 ms : pre-10,Presupuesto · orden de 12 ms : pre-12,Presupuesto · orden de 13 ms : pre-13,Presupuesto · orden de 15 ms : pre-15,Presupuesto caliente · orden de 5 ms : cpre-05,Presupuesto caliente · orden de 8 ms : cpre-08,Presupuesto caliente · orden de 9 ms : cpre-09,Presupuesto caliente · orden de 10 ms : cpre-10,Forma · lognormal (cola sin tope) : forma-lognormal,Atascos · grabación de la JVM : jfr-f2",
-        "multi": false,
-        "includeAll": false,
-        "current": {
-          "selected": true,
-          "text": "OFICIAL · régimen · 17 órd/s · 12 min",
-          "value": "of-f1-n2"
-        }
-      }
-    ]
+    "list": []
   },
   "panels": [
     {
@@ -123,16 +109,17 @@
         "displayMode": "gradient",
         "showUnfilled": true,
         "valueMode": "color",
-        "namePlacement": "left",
+        "namePlacement": "top",
         "minVizWidth": 8,
-        "minVizHeight": 16
+        "minVizHeight": 22
       },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "decimals": 3,
+          "decimals": 1,
           "min": 0,
-          "max": null,
+          "max": 0.2,
+          "noValue": "aún no se ha corrido",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -214,9 +201,9 @@
         "displayMode": "gradient",
         "showUnfilled": true,
         "valueMode": "color",
-        "namePlacement": "left",
+        "namePlacement": "top",
         "minVizWidth": 8,
-        "minVizHeight": 16
+        "minVizHeight": 22
       },
       "fieldConfig": {
         "defaults": {
@@ -224,6 +211,7 @@
           "decimals": 0,
           "min": 0,
           "max": null,
+          "noValue": "aún no se ha corrido",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -326,6 +314,9 @@
               "mode": "none",
               "group": "A"
             },
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "thresholdsStyle": {
               "mode": "dashed"
             }
@@ -354,7 +345,7 @@
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "Apiladas, las dos suman la latencia interna. Si domina la ESPERA hay que agregar particiones; si domina el TRABAJO hay que abaratar la orden.",
+      "description": "Escala logarítmica: un atasco aislado de más de un segundo aplastaba contra el eje todo lo demás, que vive entre los microsegundos y las decenas de milisegundos. Si domina la ESPERA hay que agregar particiones; si domina el TRABAJO hay que abaratar la orden.",
       "gridPos": {
         "h": 8,
         "w": 24,
@@ -401,16 +392,20 @@
       "fieldConfig": {
         "defaults": {
           "unit": "µs",
-          "min": 0,
+          "min": null,
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
-            "fillOpacity": 12,
+            "fillOpacity": 5,
             "showPoints": "never",
             "spanNulls": false,
             "stacking": {
-              "mode": "normal",
+              "mode": "none",
               "group": "A"
+            },
+            "scaleDistribution": {
+              "type": "log",
+              "log": 10
             },
             "thresholdsStyle": {
               "mode": "off"
@@ -426,7 +421,38 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "esperando en fila"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trabajo real"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -519,16 +545,17 @@
         "displayMode": "gradient",
         "showUnfilled": true,
         "valueMode": "color",
-        "namePlacement": "left",
+        "namePlacement": "top",
         "minVizWidth": 8,
-        "minVizHeight": 16
+        "minVizHeight": 22
       },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "decimals": 3,
+          "decimals": 1,
           "min": 0,
-          "max": null,
+          "max": 0.2,
+          "noValue": "aún no se ha corrido",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -622,16 +649,17 @@
         "displayMode": "gradient",
         "showUnfilled": true,
         "valueMode": "color",
-        "namePlacement": "left",
+        "namePlacement": "top",
         "minVizWidth": 8,
-        "minVizHeight": 16
+        "minVizHeight": 22
       },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "decimals": 3,
+          "decimals": 1,
           "min": 0,
-          "max": null,
+          "max": 0.2,
+          "noValue": "aún no se ha corrido",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -702,6 +730,9 @@
               "mode": "none",
               "group": "A"
             },
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "thresholdsStyle": {
               "mode": "off"
             }
@@ -721,15 +752,15 @@
     },
     {
       "type": "bargauge",
-      "title": "¿A qué tasa deja de cumplir, según cuántas particiones haya?",
+      "title": "Quiebre con 1 partición",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "El punto de quiebre es la primera tasa en rojo. La barra satura arriba de 0,5 s, pero el número siempre se ve.",
+      "description": "La primera tasa en rojo es el punto de quiebre. Si la capacidad escala agregando particiones, ese punto debería moverse en proporción.",
       "gridPos": {
-        "h": 14,
-        "w": 12,
+        "h": 11,
+        "w": 8,
         "x": 0,
         "y": 38
       },
@@ -740,7 +771,7 @@
             "uid": "prometheus-e01"
           },
           "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n1-090\",scenario!=\"calentamiento\"}[$__range]))",
-          "legendFormat": "1 partición · 90 órd/s",
+          "legendFormat": "90 órd/s",
           "refId": "A",
           "editorMode": "code",
           "range": false,
@@ -752,7 +783,7 @@
             "uid": "prometheus-e01"
           },
           "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n1-100\",scenario!=\"calentamiento\"}[$__range]))",
-          "legendFormat": "1 partición · 100 órd/s",
+          "legendFormat": "100 órd/s",
           "refId": "B",
           "editorMode": "code",
           "range": false,
@@ -764,7 +795,7 @@
             "uid": "prometheus-e01"
           },
           "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n1-110\",scenario!=\"calentamiento\"}[$__range]))",
-          "legendFormat": "1 partición · 110 órd/s",
+          "legendFormat": "110 órd/s",
           "refId": "C",
           "editorMode": "code",
           "range": false,
@@ -776,104 +807,8 @@
             "uid": "prometheus-e01"
           },
           "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n1-120\",scenario!=\"calentamiento\"}[$__range]))",
-          "legendFormat": "1 partición · 120 órd/s",
+          "legendFormat": "120 órd/s",
           "refId": "D",
-          "editorMode": "code",
-          "range": false,
-          "instant": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n2-180\",scenario!=\"calentamiento\"}[$__range]))",
-          "legendFormat": "2 particiones · 180 órd/s",
-          "refId": "E",
-          "editorMode": "code",
-          "range": false,
-          "instant": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n2-200\",scenario!=\"calentamiento\"}[$__range]))",
-          "legendFormat": "2 particiones · 200 órd/s",
-          "refId": "F",
-          "editorMode": "code",
-          "range": false,
-          "instant": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n2-220\",scenario!=\"calentamiento\"}[$__range]))",
-          "legendFormat": "2 particiones · 220 órd/s",
-          "refId": "G",
-          "editorMode": "code",
-          "range": false,
-          "instant": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n2-240\",scenario!=\"calentamiento\"}[$__range]))",
-          "legendFormat": "2 particiones · 240 órd/s",
-          "refId": "H",
-          "editorMode": "code",
-          "range": false,
-          "instant": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n4-360\",scenario!=\"calentamiento\"}[$__range]))",
-          "legendFormat": "4 particiones · 360 órd/s",
-          "refId": "I",
-          "editorMode": "code",
-          "range": false,
-          "instant": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n4-400\",scenario!=\"calentamiento\"}[$__range]))",
-          "legendFormat": "4 particiones · 400 órd/s",
-          "refId": "J",
-          "editorMode": "code",
-          "range": false,
-          "instant": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n4-440\",scenario!=\"calentamiento\"}[$__range]))",
-          "legendFormat": "4 particiones · 440 órd/s",
-          "refId": "K",
-          "editorMode": "code",
-          "range": false,
-          "instant": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n4-480\",scenario!=\"calentamiento\"}[$__range]))",
-          "legendFormat": "4 particiones · 480 órd/s",
-          "refId": "L",
           "editorMode": "code",
           "range": false,
           "instant": true
@@ -891,16 +826,225 @@
         "displayMode": "gradient",
         "showUnfilled": true,
         "valueMode": "color",
-        "namePlacement": "left",
+        "namePlacement": "top",
         "minVizWidth": 8,
-        "minVizHeight": 16
+        "minVizHeight": 22
       },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "decimals": 3,
+          "decimals": 1,
           "min": 0,
-          "max": 0.5,
+          "max": 0.2,
+          "noValue": "aún no se ha corrido",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Quiebre con 2 particiones",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-e01"
+      },
+      "description": "La primera tasa en rojo es el punto de quiebre. Si la capacidad escala agregando particiones, ese punto debería moverse en proporción.",
+      "gridPos": {
+        "h": 11,
+        "w": 8,
+        "x": 8,
+        "y": 38
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n2-180\",scenario!=\"calentamiento\"}[$__range]))",
+          "legendFormat": "180 órd/s",
+          "refId": "A",
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n2-200\",scenario!=\"calentamiento\"}[$__range]))",
+          "legendFormat": "200 órd/s",
+          "refId": "B",
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n2-220\",scenario!=\"calentamiento\"}[$__range]))",
+          "legendFormat": "220 órd/s",
+          "refId": "C",
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n2-240\",scenario!=\"calentamiento\"}[$__range]))",
+          "legendFormat": "240 órd/s",
+          "refId": "D",
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "top",
+        "minVizWidth": 8,
+        "minVizHeight": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 1,
+          "min": 0,
+          "max": 0.2,
+          "noValue": "aún no se ha corrido",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Quiebre con 4 particiones",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-e01"
+      },
+      "description": "La primera tasa en rojo es el punto de quiebre. Si la capacidad escala agregando particiones, ese punto debería moverse en proporción.",
+      "gridPos": {
+        "h": 11,
+        "w": 8,
+        "x": 16,
+        "y": 38
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n4-360\",scenario!=\"calentamiento\"}[$__range]))",
+          "legendFormat": "360 órd/s",
+          "refId": "A",
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n4-400\",scenario!=\"calentamiento\"}[$__range]))",
+          "legendFormat": "400 órd/s",
+          "refId": "B",
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n4-440\",scenario!=\"calentamiento\"}[$__range]))",
+          "legendFormat": "440 órd/s",
+          "refId": "C",
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(max_over_time(k6_grpc_req_duration_p95{corrida=~\"q-n4-480\",scenario!=\"calentamiento\"}[$__range]))",
+          "legendFormat": "480 órd/s",
+          "refId": "D",
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "top",
+        "minVizWidth": 8,
+        "minVizHeight": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 1,
+          "min": 0,
+          "max": 0.2,
+          "noValue": "aún no se ha corrido",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -927,10 +1071,10 @@
       },
       "description": "Cada corrida del barrido, en su propio momento. Lo que se busca no es el valor final sino la FORMA: mientras hay holgura la línea es plana; cerca del techo se dispara.",
       "gridPos": {
-        "h": 14,
-        "w": 12,
-        "x": 12,
-        "y": 38
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 49
       },
       "targets": [
         {
@@ -1103,6 +1247,9 @@
               "mode": "none",
               "group": "A"
             },
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "thresholdsStyle": {
               "mode": "dashed"
             }
@@ -1132,7 +1279,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 52
+        "y": 59
       },
       "panels": []
     },
@@ -1143,7 +1290,7 @@
         "h": 5,
         "w": 24,
         "x": 0,
-        "y": 53
+        "y": 60
       },
       "options": {
         "mode": "markdown",
@@ -1162,7 +1309,7 @@
         "h": 10,
         "w": 8,
         "x": 0,
-        "y": 58
+        "y": 65
       },
       "targets": [
         {
@@ -1226,16 +1373,17 @@
         "displayMode": "gradient",
         "showUnfilled": true,
         "valueMode": "color",
-        "namePlacement": "left",
+        "namePlacement": "top",
         "minVizWidth": 8,
-        "minVizHeight": 16
+        "minVizHeight": 22
       },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "decimals": 3,
+          "decimals": 1,
           "min": 0,
-          "max": 0.5,
+          "max": 0.2,
+          "noValue": "aún no se ha corrido",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1265,7 +1413,7 @@
         "h": 10,
         "w": 8,
         "x": 8,
-        "y": 58
+        "y": 65
       },
       "targets": [
         {
@@ -1307,16 +1455,20 @@
       "fieldConfig": {
         "defaults": {
           "unit": "µs",
-          "min": 0,
+          "min": null,
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
-            "fillOpacity": 12,
+            "fillOpacity": 5,
             "showPoints": "never",
             "spanNulls": false,
             "stacking": {
-              "mode": "normal",
+              "mode": "none",
               "group": "A"
+            },
+            "scaleDistribution": {
+              "type": "log",
+              "log": 10
             },
             "thresholdsStyle": {
               "mode": "off"
@@ -1332,7 +1484,38 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "esperando en fila"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trabajo real"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -1347,7 +1530,7 @@
         "h": 10,
         "w": 8,
         "x": 16,
-        "y": 58
+        "y": 65
       },
       "targets": [
         {
@@ -1424,6 +1607,9 @@
               "mode": "none",
               "group": "A"
             },
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "thresholdsStyle": {
               "mode": "off"
             }
@@ -1449,7 +1635,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 68
+        "y": 75
       },
       "panels": []
     },
@@ -1460,7 +1646,7 @@
         "h": 6,
         "w": 24,
         "x": 0,
-        "y": 69
+        "y": 76
       },
       "options": {
         "mode": "markdown",
@@ -1476,10 +1662,10 @@
       },
       "description": "Cuánto puede costar una orden sin romper el contrato.",
       "gridPos": {
-        "h": 9,
+        "h": 11,
         "w": 8,
         "x": 0,
-        "y": 75
+        "y": 82
       },
       "targets": [
         {
@@ -1555,16 +1741,17 @@
         "displayMode": "gradient",
         "showUnfilled": true,
         "valueMode": "color",
-        "namePlacement": "left",
+        "namePlacement": "top",
         "minVizWidth": 8,
-        "minVizHeight": 16
+        "minVizHeight": 22
       },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "decimals": 3,
+          "decimals": 1,
           "min": 0,
-          "max": 0.4,
+          "max": 0.2,
+          "noValue": "aún no se ha corrido",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1591,10 +1778,10 @@
       },
       "description": "El mismo barrido en el peor caso.",
       "gridPos": {
-        "h": 9,
+        "h": 11,
         "w": 8,
         "x": 8,
-        "y": 75
+        "y": 82
       },
       "targets": [
         {
@@ -1658,16 +1845,17 @@
         "displayMode": "gradient",
         "showUnfilled": true,
         "valueMode": "color",
-        "namePlacement": "left",
+        "namePlacement": "top",
         "minVizWidth": 8,
-        "minVizHeight": 16
+        "minVizHeight": 22
       },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "decimals": 3,
+          "decimals": 1,
           "min": 0,
-          "max": 0.4,
+          "max": 0.2,
+          "noValue": "aún no se ha corrido",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1694,10 +1882,10 @@
       },
       "description": "Al subir el costo por orden, el trabajo real sube en proporción y de forma predecible. La espera no: crece de golpe cuando la ocupación se acerca a uno. Repartir la carga ataca la espera; nada ataca al trabajo salvo abaratar la orden.",
       "gridPos": {
-        "h": 9,
+        "h": 11,
         "w": 8,
         "x": 16,
-        "y": 75
+        "y": 82
       },
       "targets": [
         {
@@ -1739,16 +1927,20 @@
       "fieldConfig": {
         "defaults": {
           "unit": "µs",
-          "min": 0,
+          "min": null,
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
-            "fillOpacity": 12,
+            "fillOpacity": 5,
             "showPoints": "never",
             "spanNulls": false,
             "stacking": {
-              "mode": "normal",
+              "mode": "none",
               "group": "A"
+            },
+            "scaleDistribution": {
+              "type": "log",
+              "log": 10
             },
             "thresholdsStyle": {
               "mode": "off"
@@ -1764,33 +1956,64 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "esperando en fila"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trabajo real"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
       }
     },
     {
       "type": "row",
-      "title": "Procedencia de UNA corrida — desplegar y elegirla arriba",
+      "title": "Procedencia — con qué corrió cada una (desplegar)",
       "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 84
+        "y": 93
       },
       "panels": [
         {
           "type": "table",
-          "title": "Con qué corrió la corrida seleccionada",
+          "title": "Con qué corrió cada corrida",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "description": "Sin esto, dos corridas con resultados distintos son indistinguibles.",
+          "description": "Sin esto, dos corridas con resultados distintos son indistinguibles. El techo teórico es 1 ÷ costo por orden: la capacidad que la aritmética predice para una partición.",
           "gridPos": {
-            "h": 8,
+            "h": 12,
             "w": 24,
             "x": 0,
-            "y": 85
+            "y": 94
           },
           "targets": [
             {
@@ -1798,7 +2021,7 @@
                 "type": "prometheus",
                 "uid": "prometheus-e01"
               },
-              "expr": "engine_info{corrida=~\"$corrida\"}",
+              "expr": "max by (corrida, forma, journal, cs2) (engine_info)",
               "legendFormat": "",
               "refId": "A",
               "editorMode": "code",
@@ -1810,7 +2033,7 @@
                 "type": "prometheus",
                 "uid": "prometheus-e01"
               },
-              "expr": "engine_available_processors{corrida=~\"$corrida\"}",
+              "expr": "max by (corrida) (engine_operating_point_micros)",
               "legendFormat": "",
               "refId": "B",
               "editorMode": "code",
@@ -1822,7 +2045,7 @@
                 "type": "prometheus",
                 "uid": "prometheus-e01"
               },
-              "expr": "engine_ceiling_orders_per_second{corrida=~\"$corrida\"}",
+              "expr": "max by (corrida) (engine_ceiling_orders_per_second)",
               "legendFormat": "",
               "refId": "C",
               "editorMode": "code",
@@ -1834,7 +2057,7 @@
                 "type": "prometheus",
                 "uid": "prometheus-e01"
               },
-              "expr": "engine_operating_point_micros{corrida=~\"$corrida\"}",
+              "expr": "max by (corrida) (engine_available_processors)",
               "legendFormat": "",
               "refId": "D",
               "editorMode": "code",
@@ -1852,29 +2075,36 @@
               "options": {
                 "excludeByName": {
                   "Time": true,
-                  "__name__": true,
-                  "job": true,
-                  "instance": true,
-                  "experimento": true,
                   "Value #A": true
                 },
                 "renameByName": {
                   "corrida": "Corrida",
-                  "shard": "Partición",
                   "forma": "Forma del costo por orden",
                   "cs2": "Variabilidad del costo (Cs²)",
                   "journal": "Bitácora",
-                  "Value #B": "CPU que ve la máquina virtual",
+                  "Value #B": "Costo medio por orden (µs)",
                   "Value #C": "Techo teórico (órdenes/s)",
-                  "Value #D": "Costo medio por orden (µs)"
+                  "Value #D": "CPU que ve la máquina virtual"
                 }
+              }
+            },
+            {
+              "id": "sortBy",
+              "options": {
+                "fields": {},
+                "sort": [
+                  {
+                    "field": "Corrida"
+                  }
+                ]
               }
             }
           ],
           "fieldConfig": {
             "defaults": {
               "custom": {
-                "align": "auto"
+                "align": "auto",
+                "filterable": true
               }
             },
             "overrides": [
@@ -2053,6 +2283,22 @@
                         }
                       }
                     ]
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 330
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Techo teórico (órdenes/s)"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 0
                   }
                 ]
               }

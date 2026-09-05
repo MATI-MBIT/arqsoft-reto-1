@@ -145,7 +145,8 @@ def sin_repetidas(titulo, series):
     return series
 
 
-def lineas(titulo, series, x, y, w, h, desc, unidad="s", pasos=None, apilado=False, mini=0):
+def lineas(titulo, series, x, y, w, h, desc, unidad="s", pasos=None, apilado=False,
+           mini=0, log=False, colores=None):
     """Cómo se comportó la prueba mientras corría. Cada corrida es su propio episodio
     en la línea de tiempo, así que se ven una tras otra sin pisarse."""
     return {"type": "timeseries", "title": titulo, "datasource": DS, "description": desc,
@@ -154,26 +155,49 @@ def lineas(titulo, series, x, y, w, h, desc, unidad="s", pasos=None, apilado=Fal
                         for i, (l, e) in enumerate(sin_repetidas(titulo, series))],
             "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": True},
                         "tooltip": {"mode": "multi", "sort": "desc"}},
-            "fieldConfig": {"defaults": {"unit": unidad, "min": mini, "custom": {
+            # OJO: nada de noValue en una serie temporal. Puesto aqui, Grafana lo
+            # pinta una vez por marca del eje y el eje entero queda tapado por el
+            # texto. Solo tiene sentido en un panel de valor unico.
+            "fieldConfig": {"defaults": {"unit": unidad, "min": None if log else mini,
+                "custom": {
                 "drawStyle": "line", "lineWidth": 2, "fillOpacity": 12 if apilado else 5,
                 "showPoints": "never", "spanNulls": False,
                 "stacking": {"mode": "normal" if apilado else "none", "group": "A"},
+                "scaleDistribution": {"type": "log", "log": 10} if log else {"type": "linear"},
                 "thresholdsStyle": {"mode": "dashed" if pasos else "off"}},
                 "thresholds": {"mode": "absolute", "steps": pasos or [{"color": "text", "value": None}]}},
-                "overrides": []}}
+                "overrides": [{"matcher": {"id": "byName", "options": n},
+                               "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": c}}]}
+                              for n, c in (colores or {}).items()]}}
 
 
-def barras(titulo, series, x, y, w, h, desc, unidad="s", dec=3, tope=None, pasos=None):
-    """Una barra por corrida. El valor siempre se ve, aunque la barra sature."""
+def barras(titulo, series, x, y, w, h, desc, unidad="s", dec=1, tope=LIMITE, pasos=None):
+    """Una barra por corrida.
+
+    Tres decisiones que se tomaron VIENDO el tablero renderizado, no leyendo el
+    JSON:
+
+    · El nombre va ARRIBA de la barra, no a la izquierda. A la izquierda Grafana
+      lo recorta al ancho de la columna y quedaban «régimen · ...», «pico 5× ·
+      ...», «todo en ...»: tres barras que no se podían distinguir.
+    · La barra se llena contra el LÍMITE del contrato, no contra el mayor valor
+      del panel. Escalada al mayor, una corrida de 158 ms se veía casi llena y
+      una de 31 ms diminuta, sin decir respecto a qué. Llena contra 200 ms, la
+      barra significa «cuánto del presupuesto se gastó» y saturarla significa
+      exactamente «se pasó».
+    · Un decimal. Tres --31,845 ms-- es precisión que la medición no tiene: el
+      ruido del banco es de milisegundos.
+    """
     return {"type": "bargauge", "title": titulo, "datasource": DS, "description": desc,
             "gridPos": {"h": h, "w": w, "x": x, "y": y},
             "targets": [objetivo(e, l, chr(65 + i), True)
                         for i, (l, e) in enumerate(sin_repetidas(titulo, series))],
             "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
                         "orientation": "horizontal", "displayMode": "gradient",
-                        "showUnfilled": True, "valueMode": "color", "namePlacement": "left",
-                        "minVizWidth": 8, "minVizHeight": 16},
+                        "showUnfilled": True, "valueMode": "color", "namePlacement": "top",
+                        "minVizWidth": 8, "minVizHeight": 22},
             "fieldConfig": {"defaults": {"unit": unidad, "decimals": dec, "min": 0, "max": tope,
+                                         "noValue": "aún no se ha corrido",
                                          "thresholds": {"mode": "absolute",
                                                         "steps": pasos or VERDE_ROJO}},
                             "overrides": []}}
@@ -242,7 +266,7 @@ def construir(filas):
                     8, y, 8, 9,
                     "En paralelo la bitácora corre junto al cruce y el cliente no la paga. "
                     "En serie va delante, y la orden espera al disco.",
-                    unidad="µs", dec=0, pasos=[{"color": "blue", "value": None}]))
+                    unidad="µs", dec=0, tope=None, pasos=[{"color": "blue", "value": None}]))
     P.append(lineas("Cómo evolucionó la latencia en cada fase",
                     lat(por.get("oficial", []), con_retorno=True), 16, y, 8, 9,
                     "Cada fase es un episodio propio en la línea de tiempo. Una latencia plana durante "
@@ -251,9 +275,12 @@ def construir(filas):
     y += 9
     P.append(lineas("¿El tiempo se fue esperando en fila, o trabajando? (fases oficiales)",
                     espera_servicio("oficial"), 0, y, 24, 8,
-                    "Apiladas, las dos suman la latencia interna. Si domina la ESPERA hay que agregar "
-                    "particiones; si domina el TRABAJO hay que abaratar la orden.",
-                    unidad="µs", apilado=True))
+                    "Escala logarítmica: un atasco aislado de más de un segundo aplastaba contra el eje "
+                    "todo lo demás, que vive entre los microsegundos y las decenas de milisegundos. "
+                    "Si domina la ESPERA hay que agregar particiones; si domina el TRABAJO hay que "
+                    "abaratar la orden.",
+                    unidad="µs", log=True,
+                    colores={"esperando en fila": "orange", "trabajo real": "blue"}))
     y += 8
 
     # ───────────────────────────── H2 ─────────────────────────────
@@ -279,21 +306,29 @@ def construir(filas):
                     "el reparto es 18/18 con dos y 9/9/9/9 con cuatro. Un desbalance aquí se disfrazaría "
                     "de problema de latencia.", unidad="reqps"))
     y += 9
-    P.append(barras("¿A qué tasa deja de cumplir, según cuántas particiones haya?",
-                    [("%s · %s" % ("1 partición" if f["n"] == "1" else "%s particiones" % f["n"], corto(f)),
-                      p95_de([f["id"]])) for f in por.get("h2-quiebre", [])],
-                    0, y, 12, 14,
-                    "El punto de quiebre es la primera tasa en rojo. La barra satura arriba de 0,5 s, "
-                    "pero el número siempre se ve.", tope=0.5))
+    # Un panel por topologia, no doce barras en uno. Doce barras con el nombre
+    # arriba necesitan ~55 px cada una y no caben: se encimarian. Ademas asi el
+    # numero de particiones lo dice el TITULO y cada barra solo lleva su tasa,
+    # que es el eje que de verdad cambia dentro del panel.
+    for i, n_part in enumerate(["1", "2", "4"]):
+        fs = [f for f in por.get("h2-quiebre", []) if f["n"] == n_part]
+        if not fs:
+            continue
+        P.append(barras("Quiebre con %s" % ("1 partición" if n_part == "1"
+                                            else "%s particiones" % n_part),
+                        ser(fs), i * 8, y, 8, 11,
+                        "La primera tasa en rojo es el punto de quiebre. Si la capacidad escala "
+                        "agregando particiones, ese punto debería moverse en proporción."))
+    y += 11
     P.append(lineas("Cómo se degrada cada topología al subir la carga",
                     lat(por.get("h2-quiebre", []),
                         etiq=lambda f: "%s · %s" % ("1 partición" if f["n"] == "1"
                                                     else "%s particiones" % f["n"], corto(f))),
-                    12, y, 12, 14,
-                    "Cada corrida del barrido, en su propio momento. Lo que se busca no es el valor final "
-                    "sino la FORMA: mientras hay holgura la línea es plana; cerca del techo se dispara.",
+                    0, y, 24, 10,
+                    "Cada corrida del barrido, en su propio momento. Lo que se busca no es el valor "
+                    "final sino la FORMA: mientras hay holgura la línea es plana; cerca del techo se dispara.",
                     pasos=VERDE_ROJO))
-    y += 14
+    y += 10
 
     # ──────────────────────────── H2b ─────────────────────────────
     fila("H2b · Si todo el pico cae en un solo activo, el sistema deja de responder a tiempo")
@@ -305,11 +340,12 @@ def construir(filas):
     y += 5
     P.append(barras("¿A qué tasa se cae una partición caliente?",
                     ser(por.get("h2b-caliente", [])), 0, y, 8, 10,
-                    "Todo el tráfico sobre un solo activo, subiendo la tasa.", tope=0.5))
+                    "Todo el tráfico sobre un solo activo, subiendo la tasa.", tope=LIMITE))
     P.append(lineas("La cola formándose sobre la partición caliente",
                     espera_servicio("h2b-caliente"), 8, y, 8, 10,
                     "El trabajo real se mantiene plano —no depende de la carga— mientras la espera crece. "
-                    "Esa separación ES la saturación.", unidad="µs", apilado=True))
+                    "Esa separación ES la saturación.", unidad="µs", log=True,
+                    colores={"esperando en fila": "orange", "trabajo real": "blue"}))
     P.append(lineas("¿El generador logró sostener la tasa que pidió?",
                     [(corto(f), 'sum(rate(k6_iterations_total{corrida="%s"}[1m]))' % f["id"])
                      for f in por.get("h2b-caliente", [])],
@@ -331,47 +367,55 @@ Por eso el entregable no es una cifra de latencia sino un **presupuesto**: *el d
     y += 6
     P.append(barras("Con el pico repartido entre 2 particiones",
                     ser([f for f in por.get("presupuesto", []) if f["fase"] == "f2"]),
-                    0, y, 8, 9, "Cuánto puede costar una orden sin romper el contrato.", tope=0.4))
+                    0, y, 8, 11, "Cuánto puede costar una orden sin romper el contrato.", tope=LIMITE))
     P.append(barras("Con todo el pico en una sola partición",
                     ser([f for f in por.get("presupuesto", []) if f["fase"] == "f4"]),
-                    8, y, 8, 9, "El mismo barrido en el peor caso.", tope=0.4))
+                    8, y, 8, 11, "El mismo barrido en el peor caso.", tope=LIMITE))
     P.append(lineas("El trabajo sigue al costo; la espera es la que explota",
-                    espera_servicio("presupuesto"), 16, y, 8, 9,
+                    espera_servicio("presupuesto"), 16, y, 8, 11,
                     "Al subir el costo por orden, el trabajo real sube en proporción y de forma predecible. "
                     "La espera no: crece de golpe cuando la ocupación se acerca a uno. Repartir la carga "
                     "ataca la espera; nada ataca al trabajo salvo abaratar la orden.",
-                    unidad="µs", apilado=True))
-    y += 9
+                    unidad="µs", log=True,
+                    colores={"esperando en fila": "orange", "trabajo real": "blue"}))
+    y += 11
 
-    # ─────────────────────── detalle, plegado ─────────────────────
+    # ─────────────────────── procedencia, plegado ─────────────────
+    # Sin selector. Estaba arriba del tablero como si filtrara todo, y solo
+    # afectaba a esta tabla plegada al final: un control que promete lo que no
+    # hace es peor que no tenerlo. La tabla trae ahora TODAS las corridas, una
+    # fila cada una, y se filtra con la caja de la propia tabla.
     mapeo = [{"type": "value", "options": {
         f["id"]: {"text": nombre(f), "index": i} for i, f in enumerate(filas)}}]
-    C = 'corrida=~"$corrida"'
-    detalle = [
-        {"type": "table", "title": "Con qué corrió la corrida seleccionada", "datasource": DS,
-         "description": "Sin esto, dos corridas con resultados distintos son indistinguibles.",
-         "gridPos": {"h": 8, "w": 24, "x": 0, "y": y + 1},
-         "targets": [objetivo('engine_info{%s}' % C, "", "A", True),
-                     objetivo('engine_available_processors{%s}' % C, "", "B", True),
-                     objetivo('engine_ceiling_orders_per_second{%s}' % C, "", "C", True),
-                     objetivo('engine_operating_point_micros{%s}' % C, "", "D", True)],
+    procedencia = [
+        {"type": "table", "title": "Con qué corrió cada corrida", "datasource": DS,
+         "description": "Sin esto, dos corridas con resultados distintos son indistinguibles. "
+                        "El techo teórico es 1 ÷ costo por orden: la capacidad que la aritmética "
+                        "predice para una partición.",
+         "gridPos": {"h": 12, "w": 24, "x": 0, "y": y + 1},
+         "targets": [objetivo('max by (corrida, forma, journal, cs2) (engine_info)', "", "A", True),
+                     objetivo('max by (corrida) (engine_operating_point_micros)', "", "B", True),
+                     objetivo('max by (corrida) (engine_ceiling_orders_per_second)', "", "C", True),
+                     objetivo('max by (corrida) (engine_available_processors)', "", "D", True)],
          "transformations": [
              {"id": "merge", "options": {}},
              {"id": "organize", "options": {
-                 "excludeByName": {"Time": True, "__name__": True, "job": True, "instance": True,
-                                   "experimento": True, "Value #A": True},
+                 "excludeByName": {"Time": True, "Value #A": True},
                  "renameByName": {
-                     "corrida": "Corrida", "shard": "Partición",
-                     "forma": "Forma del costo por orden", "cs2": "Variabilidad del costo (Cs²)",
-                     "journal": "Bitácora", "Value #B": "CPU que ve la máquina virtual",
-                     "Value #C": "Techo teórico (órdenes/s)", "Value #D": "Costo medio por orden (µs)"}}}],
-         "fieldConfig": {"defaults": {"custom": {"align": "auto"}}, "overrides": [
+                     "corrida": "Corrida", "forma": "Forma del costo por orden",
+                     "cs2": "Variabilidad del costo (Cs²)", "journal": "Bitácora",
+                     "Value #B": "Costo medio por orden (µs)",
+                     "Value #C": "Techo teórico (órdenes/s)",
+                     "Value #D": "CPU que ve la máquina virtual"}}},
+             {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "Corrida"}]}}],
+         "fieldConfig": {"defaults": {"custom": {"align": "auto", "filterable": True}}, "overrides": [
              {"matcher": {"id": "byName", "options": "Corrida"},
-              "properties": [{"id": "mappings", "value": mapeo}]}]}},
+              "properties": [{"id": "mappings", "value": mapeo}, {"id": "custom.width", "value": 330}]},
+             {"matcher": {"id": "byName", "options": "Techo teórico (órdenes/s)"},
+              "properties": [{"id": "decimals", "value": 0}]}]}},
     ]
-    fila("Procedencia de UNA corrida — desplegar y elegirla arriba", True, detalle)
+    fila("Procedencia — con qué corrió cada una (desplegar)", True, procedencia)
 
-    seleccion = ",".join("%s : %s" % (nombre(f), f["id"]) for f in filas)
     return {
         "uid": "e01-motor-emparejamiento",
         "title": "E01 · Motor de emparejamiento",
@@ -380,10 +424,7 @@ Por eso el entregable no es una cifra de latencia sino un **presupuesto**: *el d
         "tags": ["e01", "arqsoft"], "timezone": "browser", "editable": True,
         "schemaVersion": 39, "version": 5, "refresh": "30s",
         "time": {"from": "now-24h", "to": "now"},
-        "templating": {"list": [{
-            "name": "corrida", "label": "Corrida (solo para la procedencia de abajo)", "type": "custom",
-            "query": seleccion, "multi": False, "includeAll": False,
-            "current": {"selected": True, "text": nombre(filas[0]), "value": filas[0]["id"]}}]},
+        "templating": {"list": []},
         "panels": P,
     }
 

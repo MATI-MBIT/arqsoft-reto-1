@@ -1,7 +1,7 @@
 {
   "uid": "e01-motor-emparejamiento",
   "title": "E01 · Motor de emparejamiento",
-  "description": "Evidencia del experimento E01. La tabla de arriba compara TODAS las corridas del plan, una por fila. El selector «Corrida» aisla una sola en el resto de los paneles: sin el, cuarenta corridas se superponen y no se lee ninguna.",
+  "description": "Arriba, todas las corridas del experimento con una fila cada una. Abajo, el detalle de la que elijas en el selector.",
   "tags": [
     "e01",
     "arqsoft"
@@ -9,10 +9,10 @@
   "timezone": "browser",
   "editable": true,
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "10s",
   "time": {
-    "from": "now-6h",
+    "from": "now-12h",
     "to": "now"
   },
   "templating": {
@@ -20,19 +20,8 @@
       {
         "name": "corrida",
         "label": "Corrida",
-        "type": "query",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus-e01"
-        },
-        "query": {
-          "qryType": 1,
-          "query": "label_values(engine_orders_total, corrida)",
-          "refId": "A"
-        },
-        "definition": "label_values(engine_orders_total, corrida)",
-        "refresh": 2,
-        "sort": 1,
+        "type": "custom",
+        "query": "OFICIAL · régimen · 17 órd/s · 12 min : of-f1-n2,OFICIAL · pico 5× · 84 órd/s · 30 min : of-f2-n2,OFICIAL · todo el pico en UN activo : of-f4-n2,¿Cuántas bastan? · 1 partición · 84 órd/s : min-n1,¿Cuántas bastan? · 2 particiones · 84 órd/s : min-n2,¿Cuántas bastan? · 4 particiones · 84 órd/s : min-n4,Quiebre · 1 partición · 90 órd/s : q-n1-090,Quiebre · 1 partición · 100 órd/s : q-n1-100,Quiebre · 1 partición · 110 órd/s : q-n1-110,Quiebre · 1 partición · 120 órd/s : q-n1-120,Quiebre · 2 particiones · 180 órd/s : q-n2-180,Quiebre · 2 particiones · 200 órd/s : q-n2-200,Quiebre · 2 particiones · 220 órd/s : q-n2-220,Quiebre · 2 particiones · 240 órd/s : q-n2-240,Quiebre · 4 particiones · 360 órd/s : q-n4-360,Quiebre · 4 particiones · 400 órd/s : q-n4-400,Quiebre · 4 particiones · 440 órd/s : q-n4-440,Quiebre · 4 particiones · 480 órd/s : q-n4-480,Activo caliente · 84 órd/s en UN activo : cal-084,Activo caliente · 100 órd/s en UN activo : cal-100,Activo caliente · 110 órd/s en UN activo : cal-110,Activo caliente · 120 órd/s en UN activo : cal-120,Bitácora · apagada : bit-off,Bitácora · en paralelo : bit-paralelo,Bitácora · en serie (camino crítico) : bit-serie,CPU · sin límite : cpu-libre,CPU · 2 núcleos : cpu-2,CPU · 1 núcleo : cpu-1,CPU · medio núcleo : cpu-05,Presupuesto · orden de 5 ms : pre-05,Presupuesto · orden de 10 ms : pre-10,Presupuesto · orden de 12 ms : pre-12,Presupuesto · orden de 13 ms : pre-13,Presupuesto · orden de 15 ms : pre-15,Presupuesto caliente · orden de 5 ms : cpre-05,Presupuesto caliente · orden de 8 ms : cpre-08,Presupuesto caliente · orden de 9 ms : cpre-09,Presupuesto caliente · orden de 10 ms : cpre-10,Forma · lognormal (cola sin tope) : forma-lognormal,Atascos · grabación de la JVM : jfr-f2",
         "multi": true,
         "includeAll": true,
         "current": {
@@ -50,7 +39,7 @@
   "panels": [
     {
       "type": "row",
-      "title": "Veredicto — una fila por corrida, sin superponer nada",
+      "title": "Las corridas del plan — una fila cada una",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -62,14 +51,14 @@
     },
     {
       "type": "table",
-      "title": "Todas las corridas del plan",
+      "title": "¿Cuál cumple y cuál no?",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "Cada corrida es una fila. Es el panel que resuelve el enredo de superponer cuarenta series en una grafica: aqui se comparan de un vistazo y el resto del tablero sirve para entrar en UNA, con el selector de arriba.\\n\\np95: el peor de las ventanas de 5 s de la fase medida — mas estricto que el p95 de la corrida.\\ndescartes: si no esta vacio, la latencia de esa fila NO es del sistema (el generador se quedo sin clientes).",
+      "description": "Verde: el percentil 95 quedó bajo los 200 ms del contrato. Rojo: no. Naranja en «se quedaron fuera»: el generador se quedó sin clientes y la latencia de esa fila mide su propio límite, no el motor.",
       "gridPos": {
-        "h": 13,
+        "h": 14,
         "w": 24,
         "x": 0,
         "y": 1
@@ -128,7 +117,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "count by (corrida) (max by (corrida, shard) (engine_orders_total))",
+          "expr": "max by (corrida) (max_over_time(engine_window_service_micros{quantile=\"0.95\"}[$__range]))",
           "legendFormat": "",
           "refId": "E",
           "editorMode": "code",
@@ -149,11 +138,11 @@
             },
             "renameByName": {
               "corrida": "Corrida",
-              "Value #A": "p95 peor ventana",
-              "Value #B": "descartes",
-              "Value #C": "S (µs/orden)",
-              "Value #D": "espera p95 (µs)",
-              "Value #E": "particiones"
+              "Value #A": "Latencia p95",
+              "Value #B": "Se quedaron fuera",
+              "Value #C": "Costo por orden",
+              "Value #D": "Esperando en fila",
+              "Value #E": "Trabajo real"
             }
           }
         },
@@ -180,7 +169,189 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "p95 peor ventana"
+              "options": "Corrida"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "of-f1-n2": {
+                        "text": "OFICIAL · régimen · 17 órd/s · 12 min",
+                        "index": 0
+                      },
+                      "of-f2-n2": {
+                        "text": "OFICIAL · pico 5× · 84 órd/s · 30 min",
+                        "index": 1
+                      },
+                      "of-f4-n2": {
+                        "text": "OFICIAL · todo el pico en UN activo",
+                        "index": 2
+                      },
+                      "min-n1": {
+                        "text": "¿Cuántas bastan? · 1 partición · 84 órd/s",
+                        "index": 3
+                      },
+                      "min-n2": {
+                        "text": "¿Cuántas bastan? · 2 particiones · 84 órd/s",
+                        "index": 4
+                      },
+                      "min-n4": {
+                        "text": "¿Cuántas bastan? · 4 particiones · 84 órd/s",
+                        "index": 5
+                      },
+                      "q-n1-090": {
+                        "text": "Quiebre · 1 partición · 90 órd/s",
+                        "index": 6
+                      },
+                      "q-n1-100": {
+                        "text": "Quiebre · 1 partición · 100 órd/s",
+                        "index": 7
+                      },
+                      "q-n1-110": {
+                        "text": "Quiebre · 1 partición · 110 órd/s",
+                        "index": 8
+                      },
+                      "q-n1-120": {
+                        "text": "Quiebre · 1 partición · 120 órd/s",
+                        "index": 9
+                      },
+                      "q-n2-180": {
+                        "text": "Quiebre · 2 particiones · 180 órd/s",
+                        "index": 10
+                      },
+                      "q-n2-200": {
+                        "text": "Quiebre · 2 particiones · 200 órd/s",
+                        "index": 11
+                      },
+                      "q-n2-220": {
+                        "text": "Quiebre · 2 particiones · 220 órd/s",
+                        "index": 12
+                      },
+                      "q-n2-240": {
+                        "text": "Quiebre · 2 particiones · 240 órd/s",
+                        "index": 13
+                      },
+                      "q-n4-360": {
+                        "text": "Quiebre · 4 particiones · 360 órd/s",
+                        "index": 14
+                      },
+                      "q-n4-400": {
+                        "text": "Quiebre · 4 particiones · 400 órd/s",
+                        "index": 15
+                      },
+                      "q-n4-440": {
+                        "text": "Quiebre · 4 particiones · 440 órd/s",
+                        "index": 16
+                      },
+                      "q-n4-480": {
+                        "text": "Quiebre · 4 particiones · 480 órd/s",
+                        "index": 17
+                      },
+                      "cal-084": {
+                        "text": "Activo caliente · 84 órd/s en UN activo",
+                        "index": 18
+                      },
+                      "cal-100": {
+                        "text": "Activo caliente · 100 órd/s en UN activo",
+                        "index": 19
+                      },
+                      "cal-110": {
+                        "text": "Activo caliente · 110 órd/s en UN activo",
+                        "index": 20
+                      },
+                      "cal-120": {
+                        "text": "Activo caliente · 120 órd/s en UN activo",
+                        "index": 21
+                      },
+                      "bit-off": {
+                        "text": "Bitácora · apagada",
+                        "index": 22
+                      },
+                      "bit-paralelo": {
+                        "text": "Bitácora · en paralelo",
+                        "index": 23
+                      },
+                      "bit-serie": {
+                        "text": "Bitácora · en serie (camino crítico)",
+                        "index": 24
+                      },
+                      "cpu-libre": {
+                        "text": "CPU · sin límite",
+                        "index": 25
+                      },
+                      "cpu-2": {
+                        "text": "CPU · 2 núcleos",
+                        "index": 26
+                      },
+                      "cpu-1": {
+                        "text": "CPU · 1 núcleo",
+                        "index": 27
+                      },
+                      "cpu-05": {
+                        "text": "CPU · medio núcleo",
+                        "index": 28
+                      },
+                      "pre-05": {
+                        "text": "Presupuesto · orden de 5 ms",
+                        "index": 29
+                      },
+                      "pre-10": {
+                        "text": "Presupuesto · orden de 10 ms",
+                        "index": 30
+                      },
+                      "pre-12": {
+                        "text": "Presupuesto · orden de 12 ms",
+                        "index": 31
+                      },
+                      "pre-13": {
+                        "text": "Presupuesto · orden de 13 ms",
+                        "index": 32
+                      },
+                      "pre-15": {
+                        "text": "Presupuesto · orden de 15 ms",
+                        "index": 33
+                      },
+                      "cpre-05": {
+                        "text": "Presupuesto caliente · orden de 5 ms",
+                        "index": 34
+                      },
+                      "cpre-08": {
+                        "text": "Presupuesto caliente · orden de 8 ms",
+                        "index": 35
+                      },
+                      "cpre-09": {
+                        "text": "Presupuesto caliente · orden de 9 ms",
+                        "index": 36
+                      },
+                      "cpre-10": {
+                        "text": "Presupuesto caliente · orden de 10 ms",
+                        "index": 37
+                      },
+                      "forma-lognormal": {
+                        "text": "Forma · lognormal (cola sin tope)",
+                        "index": 38
+                      },
+                      "jfr-f2": {
+                        "text": "Atascos · grabación de la JVM",
+                        "index": 39
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 340
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Latencia p95"
             },
             "properties": [
               {
@@ -218,7 +389,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "descartes"
+              "options": "Se quedaron fuera"
             },
             "properties": [
               {
@@ -244,35 +415,83 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Costo por orden"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "µs"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Esperando en fila"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "µs"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Trabajo real"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "µs"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
           }
         ]
       }
     },
     {
       "type": "row",
-      "title": "La corrida seleccionada — ¿cumple el contrato?",
+      "title": "Una corrida en detalle — elígela en el selector de arriba",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 15
       },
       "panels": []
     },
     {
       "type": "timeseries",
-      "title": "Latencia del cliente, por escenario",
+      "title": "Lo que espera el cliente, contra el límite de 200 ms",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "La linea roja punteada es el criterio: 200 ms. El calentamiento se dibuja aparte porque aporta trafico y no aporta veredicto.",
+      "description": "La línea roja punteada es el contrato. El calentamiento se dibuja aparte porque aporta tráfico y no cuenta para el veredicto.",
       "gridPos": {
-        "h": 9,
-        "w": 14,
+        "h": 10,
+        "w": 12,
         "x": 0,
-        "y": 15
+        "y": 16
       },
       "targets": [
         {
@@ -281,7 +500,7 @@
             "uid": "prometheus-e01"
           },
           "expr": "k6_grpc_req_duration_p95{corrida=~\"$corrida\",scenario!=\"calentamiento\"}",
-          "legendFormat": "p95 · {{corrida}} · {{scenario}}",
+          "legendFormat": "la mitad peor (p95)",
           "refId": "A",
           "editorMode": "code",
           "range": true,
@@ -293,7 +512,7 @@
             "uid": "prometheus-e01"
           },
           "expr": "k6_grpc_req_duration_p99{corrida=~\"$corrida\",scenario!=\"calentamiento\"}",
-          "legendFormat": "p99 · {{corrida}} · {{scenario}}",
+          "legendFormat": "1 de cada 100 (p99)",
           "refId": "B",
           "editorMode": "code",
           "range": true,
@@ -305,7 +524,7 @@
             "uid": "prometheus-e01"
           },
           "expr": "k6_grpc_req_duration_p95{corrida=~\"$corrida\",scenario=\"calentamiento\"}",
-          "legendFormat": "calentamiento (fuera del criterio)",
+          "legendFormat": "calentamiento (no cuenta)",
           "refId": "C",
           "editorMode": "code",
           "range": true,
@@ -314,13 +533,9 @@
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "mean",
-            "max"
-          ]
+          "showLegend": true
         },
         "tooltip": {
           "mode": "multi",
@@ -330,7 +545,6 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "min": null,
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
@@ -360,99 +574,17 @@
     },
     {
       "type": "timeseries",
-      "title": "Tasa lograda contra la objetivo",
+      "title": "¿Se va el tiempo esperando, o trabajando?",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "Si la tasa lograda se despega de la objetivo, el motor topo: a partir de ahi la latencia mide el pool del generador, no el sistema.",
+      "description": "Si crece la ESPERA, hay que agregar particiones: la orden hace fila. Si crece el TRABAJO, hay que abaratar la orden — más particiones no ayudan.",
       "gridPos": {
-        "h": 9,
-        "w": 10,
-        "x": 14,
-        "y": 15
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "sum by (corrida, scenario) (rate(k6_iterations_total{corrida=~\"$corrida\"}[1m]))",
-          "legendFormat": "{{corrida}} · {{scenario}}",
-          "refId": "A",
-          "editorMode": "code",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "mean",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "min": 0,
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 6,
-            "showPoints": "never",
-            "spanNulls": true,
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "type": "row",
-      "title": "Dónde se va el tiempo — espera contra servicio",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 24
-      },
-      "panels": []
-    },
-    {
-      "type": "timeseries",
-      "title": "Espera y servicio, percentil 95 por partición",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus-e01"
-      },
-      "description": "La descomposicion que decide que se ataca. Si crece la ESPERA hay que agregar particiones: la orden hace fila. Si crece el SERVICIO hay que abaratar la orden: mas particiones no ayudan.",
-      "gridPos": {
-        "h": 9,
+        "h": 10,
         "w": 12,
-        "x": 0,
-        "y": 25
+        "x": 12,
+        "y": 16
       },
       "targets": [
         {
@@ -461,7 +593,7 @@
             "uid": "prometheus-e01"
           },
           "expr": "engine_window_wait_micros{quantile=\"0.95\",corrida=~\"$corrida\"}",
-          "legendFormat": "espera · shard {{shard}}",
+          "legendFormat": "esperando en fila · partición {{shard}}",
           "refId": "A",
           "editorMode": "code",
           "range": true,
@@ -473,7 +605,7 @@
             "uid": "prometheus-e01"
           },
           "expr": "engine_window_service_micros{quantile=\"0.95\",corrida=~\"$corrida\"}",
-          "legendFormat": "servicio · shard {{shard}}",
+          "legendFormat": "trabajo real · partición {{shard}}",
           "refId": "B",
           "editorMode": "code",
           "range": true,
@@ -482,13 +614,9 @@
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "mean",
-            "max"
-          ]
+          "showLegend": true
         },
         "tooltip": {
           "mode": "multi",
@@ -502,309 +630,31 @@
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
-            "fillOpacity": 6,
+            "fillOpacity": 10,
             "showPoints": "never",
             "spanNulls": true,
-            "thresholdsStyle": {
-              "mode": "off"
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
             }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
           }
         },
         "overrides": []
       }
-    },
-    {
-      "type": "timeseries",
-      "title": "Latencia interna y peor orden de cada ventana",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus-e01"
-      },
-      "description": "La serie de 'peor orden' delata los atascos aislados: un solo evento de cientos de milisegundos incumple el SLA aunque el p95 este comodo.",
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 12,
-        "y": 25
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "engine_window_latency_micros{quantile=\"0.95\",corrida=~\"$corrida\"}",
-          "legendFormat": "p95 · shard {{shard}}",
-          "refId": "A",
-          "editorMode": "code",
-          "range": true,
-          "instant": false
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "engine_window_latency_micros{quantile=\"0.999\",corrida=~\"$corrida\"}",
-          "legendFormat": "p99.9 · shard {{shard}}",
-          "refId": "B",
-          "editorMode": "code",
-          "range": true,
-          "instant": false
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "engine_window_latency_max_micros{corrida=~\"$corrida\"}",
-          "legendFormat": "peor orden · shard {{shard}}",
-          "refId": "C",
-          "editorMode": "code",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "mean",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "µs",
-          "min": 0,
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 6,
-            "showPoints": "never",
-            "spanNulls": true,
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "type": "row",
-      "title": "Escalabilidad — reparto entre particiones y freno de entrada",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 34
-      },
-      "panels": []
-    },
-    {
-      "type": "timeseries",
-      "title": "Órdenes por segundo que resuelve cada partición",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus-e01"
-      },
-      "description": "Con los 36 activos del conjunto el reparto es 18/18 con N=2 y 9/9/9/9 con N=4. Un desbalance aqui se disfrazaria de problema de latencia.",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 35
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "rate(engine_orders_total{corrida=~\"$corrida\"}[1m])",
-          "legendFormat": "shard {{shard}}",
-          "refId": "A",
-          "editorMode": "code",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "mean",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "min": 0,
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 6,
-            "showPoints": "never",
-            "spanNulls": true,
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Cola del router contra su tope",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus-e01"
-      },
-      "description": "Al tocar el tope el router rechaza en vez de encolar sin limite. Cuanta holgura queda dice si el freno estuvo cerca de activarse o ni se acerco.",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 35
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "router_inflight{corrida=~\"$corrida\"}",
-          "legendFormat": "en vuelo",
-          "refId": "A",
-          "editorMode": "code",
-          "range": true,
-          "instant": false
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "router_queue_capacity{corrida=~\"$corrida\"}",
-          "legendFormat": "tope de la cola",
-          "refId": "B",
-          "editorMode": "code",
-          "range": true,
-          "instant": false
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "mean",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0,
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 6,
-            "showPoints": "never",
-            "spanNulls": true,
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "type": "row",
-      "title": "Procedencia — sin esto, dos corridas distintas son indistinguibles",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 43
-      },
-      "panels": []
     },
     {
       "type": "table",
-      "title": "Punto de operación de la corrida seleccionada",
+      "title": "Con qué corrió",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus-e01"
       },
-      "description": "La forma de la distribucion del costo, su variabilidad (Cs2), la disposicion de la bitacora, las CPU que ve la JVM y el techo aritmetico que implica la media declarada. Ninguna cifra del tablero se lee sin esto al lado.",
+      "description": "Sin esto, dos corridas con resultados distintos son indistinguibles.",
       "gridPos": {
-        "h": 8,
+        "h": 7,
         "w": 24,
         "x": 0,
-        "y": 44
+        "y": 26
       },
       "targets": [
         {
@@ -842,18 +692,6 @@
           "editorMode": "code",
           "range": false,
           "instant": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-e01"
-          },
-          "expr": "engine_operating_point_micros{corrida=~\"$corrida\"}",
-          "legendFormat": "",
-          "refId": "D",
-          "editorMode": "code",
-          "range": false,
-          "instant": true
         }
       ],
       "transformations": [
@@ -869,17 +707,17 @@
               "__name__": true,
               "job": true,
               "instance": true,
-              "experimento": true
+              "experimento": true,
+              "Value #A": true
             },
             "renameByName": {
               "corrida": "Corrida",
               "shard": "Partición",
-              "forma": "Forma",
-              "cs2": "Cs²",
+              "forma": "Forma del costo",
+              "cs2": "Variabilidad (Cs²)",
               "journal": "Bitácora",
               "Value #B": "CPU que ve la JVM",
-              "Value #C": "techo 1/S (órd/s)",
-              "Value #D": "S (µs/orden)"
+              "Value #C": "Techo teórico (órd/s)"
             }
           }
         }
@@ -894,12 +732,178 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Value #A"
+              "options": "Corrida"
             },
             "properties": [
               {
-                "id": "custom.hidden",
-                "value": true
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "of-f1-n2": {
+                        "text": "OFICIAL · régimen · 17 órd/s · 12 min",
+                        "index": 0
+                      },
+                      "of-f2-n2": {
+                        "text": "OFICIAL · pico 5× · 84 órd/s · 30 min",
+                        "index": 1
+                      },
+                      "of-f4-n2": {
+                        "text": "OFICIAL · todo el pico en UN activo",
+                        "index": 2
+                      },
+                      "min-n1": {
+                        "text": "¿Cuántas bastan? · 1 partición · 84 órd/s",
+                        "index": 3
+                      },
+                      "min-n2": {
+                        "text": "¿Cuántas bastan? · 2 particiones · 84 órd/s",
+                        "index": 4
+                      },
+                      "min-n4": {
+                        "text": "¿Cuántas bastan? · 4 particiones · 84 órd/s",
+                        "index": 5
+                      },
+                      "q-n1-090": {
+                        "text": "Quiebre · 1 partición · 90 órd/s",
+                        "index": 6
+                      },
+                      "q-n1-100": {
+                        "text": "Quiebre · 1 partición · 100 órd/s",
+                        "index": 7
+                      },
+                      "q-n1-110": {
+                        "text": "Quiebre · 1 partición · 110 órd/s",
+                        "index": 8
+                      },
+                      "q-n1-120": {
+                        "text": "Quiebre · 1 partición · 120 órd/s",
+                        "index": 9
+                      },
+                      "q-n2-180": {
+                        "text": "Quiebre · 2 particiones · 180 órd/s",
+                        "index": 10
+                      },
+                      "q-n2-200": {
+                        "text": "Quiebre · 2 particiones · 200 órd/s",
+                        "index": 11
+                      },
+                      "q-n2-220": {
+                        "text": "Quiebre · 2 particiones · 220 órd/s",
+                        "index": 12
+                      },
+                      "q-n2-240": {
+                        "text": "Quiebre · 2 particiones · 240 órd/s",
+                        "index": 13
+                      },
+                      "q-n4-360": {
+                        "text": "Quiebre · 4 particiones · 360 órd/s",
+                        "index": 14
+                      },
+                      "q-n4-400": {
+                        "text": "Quiebre · 4 particiones · 400 órd/s",
+                        "index": 15
+                      },
+                      "q-n4-440": {
+                        "text": "Quiebre · 4 particiones · 440 órd/s",
+                        "index": 16
+                      },
+                      "q-n4-480": {
+                        "text": "Quiebre · 4 particiones · 480 órd/s",
+                        "index": 17
+                      },
+                      "cal-084": {
+                        "text": "Activo caliente · 84 órd/s en UN activo",
+                        "index": 18
+                      },
+                      "cal-100": {
+                        "text": "Activo caliente · 100 órd/s en UN activo",
+                        "index": 19
+                      },
+                      "cal-110": {
+                        "text": "Activo caliente · 110 órd/s en UN activo",
+                        "index": 20
+                      },
+                      "cal-120": {
+                        "text": "Activo caliente · 120 órd/s en UN activo",
+                        "index": 21
+                      },
+                      "bit-off": {
+                        "text": "Bitácora · apagada",
+                        "index": 22
+                      },
+                      "bit-paralelo": {
+                        "text": "Bitácora · en paralelo",
+                        "index": 23
+                      },
+                      "bit-serie": {
+                        "text": "Bitácora · en serie (camino crítico)",
+                        "index": 24
+                      },
+                      "cpu-libre": {
+                        "text": "CPU · sin límite",
+                        "index": 25
+                      },
+                      "cpu-2": {
+                        "text": "CPU · 2 núcleos",
+                        "index": 26
+                      },
+                      "cpu-1": {
+                        "text": "CPU · 1 núcleo",
+                        "index": 27
+                      },
+                      "cpu-05": {
+                        "text": "CPU · medio núcleo",
+                        "index": 28
+                      },
+                      "pre-05": {
+                        "text": "Presupuesto · orden de 5 ms",
+                        "index": 29
+                      },
+                      "pre-10": {
+                        "text": "Presupuesto · orden de 10 ms",
+                        "index": 30
+                      },
+                      "pre-12": {
+                        "text": "Presupuesto · orden de 12 ms",
+                        "index": 31
+                      },
+                      "pre-13": {
+                        "text": "Presupuesto · orden de 13 ms",
+                        "index": 32
+                      },
+                      "pre-15": {
+                        "text": "Presupuesto · orden de 15 ms",
+                        "index": 33
+                      },
+                      "cpre-05": {
+                        "text": "Presupuesto caliente · orden de 5 ms",
+                        "index": 34
+                      },
+                      "cpre-08": {
+                        "text": "Presupuesto caliente · orden de 8 ms",
+                        "index": 35
+                      },
+                      "cpre-09": {
+                        "text": "Presupuesto caliente · orden de 9 ms",
+                        "index": 36
+                      },
+                      "cpre-10": {
+                        "text": "Presupuesto caliente · orden de 10 ms",
+                        "index": 37
+                      },
+                      "forma-lognormal": {
+                        "text": "Forma · lognormal (cola sin tope)",
+                        "index": 38
+                      },
+                      "jfr-f2": {
+                        "text": "Atascos · grabación de la JVM",
+                        "index": 39
+                      }
+                    }
+                  }
+                ]
               }
             ]
           }

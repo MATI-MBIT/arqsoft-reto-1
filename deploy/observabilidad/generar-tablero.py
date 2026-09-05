@@ -131,12 +131,27 @@ def texto(titulo, cuerpo, y, h=5):
             "options": {"mode": "markdown", "content": cuerpo}}
 
 
+def sin_repetidas(titulo, series):
+    """Dos series con el mismo nombre vuelven ilegible un panel: no hay forma de
+    saber cuál es cuál. Pasó de verdad --la corrida del pico devuelve DOS series,
+    el escenario del pico y el del retorno-- así que se comprueba, no se confía."""
+    vistas, repes = set(), []
+    for etiqueta, _ in series:
+        if etiqueta in vistas:
+            repes.append(etiqueta)
+        vistas.add(etiqueta)
+    if repes:
+        raise SystemExit("panel «%s»: etiquetas repetidas -> %s" % (titulo, repes))
+    return series
+
+
 def lineas(titulo, series, x, y, w, h, desc, unidad="s", pasos=None, apilado=False, mini=0):
     """Cómo se comportó la prueba mientras corría. Cada corrida es su propio episodio
     en la línea de tiempo, así que se ven una tras otra sin pisarse."""
     return {"type": "timeseries", "title": titulo, "datasource": DS, "description": desc,
             "gridPos": {"h": h, "w": w, "x": x, "y": y},
-            "targets": [objetivo(e, l, chr(65 + i)) for i, (l, e) in enumerate(series)],
+            "targets": [objetivo(e, l, chr(65 + i))
+                        for i, (l, e) in enumerate(sin_repetidas(titulo, series))],
             "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": True},
                         "tooltip": {"mode": "multi", "sort": "desc"}},
             "fieldConfig": {"defaults": {"unit": unidad, "min": mini, "custom": {
@@ -152,7 +167,8 @@ def barras(titulo, series, x, y, w, h, desc, unidad="s", dec=3, tope=None, pasos
     """Una barra por corrida. El valor siempre se ve, aunque la barra sature."""
     return {"type": "bargauge", "title": titulo, "datasource": DS, "description": desc,
             "gridPos": {"h": h, "w": w, "x": x, "y": y},
-            "targets": [objetivo(e, l, chr(65 + i), True) for i, (l, e) in enumerate(series)],
+            "targets": [objetivo(e, l, chr(65 + i), True)
+                        for i, (l, e) in enumerate(sin_repetidas(titulo, series))],
             "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
                         "orientation": "horizontal", "displayMode": "gradient",
                         "showUnfilled": True, "valueMode": "color", "namePlacement": "left",
@@ -180,8 +196,22 @@ def construir(filas):
     ids = lambda g: [f["id"] for f in por.get(g, [])]
     ser = lambda fs: [(corto(f), p95_de([f["id"]])) for f in fs]
 
-    def lat(fs):
-        return [(corto(f), 'k6_grpc_req_duration_p95{corrida="%s",%s}' % (f["id"], MEDIDO)) for f in fs]
+    def lat(fs, etiq=None, con_retorno=False):
+        """Una serie por consulta, con el escenario EXPLÍCITO.
+
+        Filtrar solo por «no es calentamiento» devuelve dos series en las corridas
+        de pico --el pico y el retorno-- y las dos heredaban la misma etiqueta.
+        El `max()` de fuera garantiza además que nunca salga más de una línea por
+        consulta, aunque k6 agregue etiquetas nuevas."""
+        out = []
+        for f in fs:
+            e = etiq(f) if etiq else corto(f)
+            out.append((e, 'max(k6_grpc_req_duration_p95{corrida="%s",scenario="%s"})'
+                        % (f["id"], f["fase"])))
+            if con_retorno and f["fase"] == "f2":
+                out.append(("retorno a régimen · 17 órd/s",
+                            'max(k6_grpc_req_duration_p95{corrida="%s",scenario="f3"})' % f["id"]))
+        return out
 
     def espera_servicio(g):
         r = '|'.join(ids(g))
@@ -214,7 +244,7 @@ def construir(filas):
                     "En serie va delante, y la orden espera al disco.",
                     unidad="µs", dec=0, pasos=[{"color": "blue", "value": None}]))
     P.append(lineas("Cómo evolucionó la latencia en cada fase",
-                    lat(por.get("oficial", [])), 16, y, 8, 9,
+                    lat(por.get("oficial", []), con_retorno=True), 16, y, 8, 9,
                     "Cada fase es un episodio propio en la línea de tiempo. Una latencia plana durante "
                     "media hora dice más que un percentil: significa que el sistema no se degrada con el tiempo.",
                     pasos=VERDE_ROJO))
@@ -241,8 +271,9 @@ def construir(filas):
                     ser(por.get("h2-cpu", [])), 8, y, 8, 9,
                     "El prototipo corre sobre 14 CPU, cosa que ningún despliegue real hace."))
     P.append(lineas("¿Se reparte parejo entre particiones?",
-                    [("partición {{shard}}", 'rate(engine_orders_total{corrida=~"%s"}[1m])' % "|".join(
-                        ids("h2-minimo") + ids("oficial")))],
+                    [("partición {{shard}}",
+                      'sum by (shard) (rate(engine_orders_total{corrida=~"%s"}[1m]))'
+                      % "|".join(ids("h2-minimo") + ids("oficial")))],
                     16, y, 8, 9,
                     "Órdenes por segundo que resuelve cada partición. Con los 36 activos del conjunto "
                     "el reparto es 18/18 con dos y 9/9/9/9 con cuatro. Un desbalance aquí se disfrazaría "
@@ -255,7 +286,10 @@ def construir(filas):
                     "El punto de quiebre es la primera tasa en rojo. La barra satura arriba de 0,5 s, "
                     "pero el número siempre se ve.", tope=0.5))
     P.append(lineas("Cómo se degrada cada topología al subir la carga",
-                    lat(por.get("h2-quiebre", [])), 12, y, 12, 14,
+                    lat(por.get("h2-quiebre", []),
+                        etiq=lambda f: "%s · %s" % ("1 partición" if f["n"] == "1"
+                                                    else "%s particiones" % f["n"], corto(f))),
+                    12, y, 12, 14,
                     "Cada corrida del barrido, en su propio momento. Lo que se busca no es el valor final "
                     "sino la FORMA: mientras hay holgura la línea es plana; cerca del techo se dispara.",
                     pasos=VERDE_ROJO))
@@ -354,8 +388,58 @@ Por eso el entregable no es una cifra de latencia sino un **presupuesto**: *el d
     }
 
 
+def verificar(tablero, prometheus="http://localhost:9090"):
+    """Comprueba contra Prometheus que ninguna GRÁFICA dibuje dos líneas con el
+    mismo nombre.
+
+    La guarda estática solo ve etiquetas repetidas en el archivo. El caso real
+    fue otro: UNA consulta que devuelve varias series --la corrida del pico
+    devuelve el escenario del pico y el del retorno-- y las dos heredan la misma
+    etiqueta. Eso solo se ve preguntándole a Prometheus.
+
+    Las tablas se saltan: ahí varias filas es lo correcto.
+    """
+    import urllib.parse, urllib.request, time
+    fin = int(time.time()); ini = fin - 86400
+    def todos(t):
+        for p in t["panels"]:
+            if p["type"] == "row":
+                for q in p.get("panels", []):
+                    yield q
+            else:
+                yield p
+    malos = 0
+    for p in todos(tablero):
+        if p["type"] not in ("timeseries", "bargauge"):
+            continue
+        for tg in p.get("targets", []):
+            if "{{" in tg.get("legendFormat", ""):
+                continue  # la leyenda distingue las series por sí sola
+            e = tg["expr"].replace("$__range", "24h")
+            u = (prometheus + "/api/v1/query_range?query=" + urllib.parse.quote(e)
+                 + "&start=%d&end=%d&step=300" % (ini, fin))
+            try:
+                r = json.load(urllib.request.urlopen(u, timeout=10))["data"]["result"]
+            except Exception:
+                return None  # sin Prometheus a mano no se puede comprobar
+            if len(r) > 1:
+                print("  ✗ «%s» / «%s» dibuja %d líneas con el mismo nombre"
+                      % (p["title"], tg["legendFormat"], len(r)))
+                malos += 1
+    return malos
+
+
 if __name__ == "__main__":
     filas = leer_plan()
+    tablero = construir(filas)
     io.open(SALIDA, "w", encoding="utf-8").write(
-        json.dumps(construir(filas), indent=2, ensure_ascii=False) + "\n")
+        json.dumps(tablero, indent=2, ensure_ascii=False) + "\n")
     print("tablero generado desde %d corridas del plan -> %s" % (len(filas), SALIDA))
+    if "--verificar" in sys.argv:
+        malos = verificar(tablero)
+        if malos is None:
+            print("  (Prometheus no responde: no se pudo comprobar contra datos reales)")
+        elif malos:
+            sys.exit("  %d gráfica(s) con líneas homónimas" % malos)
+        else:
+            print("  comprobado contra Prometheus: ninguna gráfica dibuja líneas homónimas")

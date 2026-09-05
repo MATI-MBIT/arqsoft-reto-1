@@ -257,7 +257,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"of-f1-n2\",scenario!=\"calentamiento\"}",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"of-f1-n2\",scenario=\"f1\"})",
           "legendFormat": "régimen · 17 órd/s",
           "refId": "A",
           "editorMode": "code",
@@ -269,7 +269,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"of-f2-n2\",scenario!=\"calentamiento\"}",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"of-f2-n2\",scenario=\"f2\"})",
           "legendFormat": "pico 5× · 84 órd/s",
           "refId": "B",
           "editorMode": "code",
@@ -281,9 +281,21 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"of-f4-n2\",scenario!=\"calentamiento\"}",
-          "legendFormat": "todo en UN activo",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"of-f2-n2\",scenario=\"f3\"})",
+          "legendFormat": "retorno a régimen · 17 órd/s",
           "refId": "C",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"of-f4-n2\",scenario=\"f4\"})",
+          "legendFormat": "todo en UN activo",
+          "refId": "D",
           "editorMode": "code",
           "range": true,
           "instant": false
@@ -657,7 +669,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "rate(engine_orders_total{corrida=~\"min-n1|min-n2|min-n4|of-f1-n2|of-f2-n2|of-f4-n2\"}[1m])",
+          "expr": "sum by (shard) (rate(engine_orders_total{corrida=~\"min-n1|min-n2|min-n4|of-f1-n2|of-f2-n2|of-f4-n2\"}[1m]))",
           "legendFormat": "partición {{shard}}",
           "refId": "A",
           "editorMode": "code",
@@ -926,8 +938,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n1-090\",scenario!=\"calentamiento\"}",
-          "legendFormat": "90 órd/s",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n1-090\",scenario=\"f2\"})",
+          "legendFormat": "1 partición · 90 órd/s",
           "refId": "A",
           "editorMode": "code",
           "range": true,
@@ -938,8 +950,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n1-100\",scenario!=\"calentamiento\"}",
-          "legendFormat": "100 órd/s",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n1-100\",scenario=\"f2\"})",
+          "legendFormat": "1 partición · 100 órd/s",
           "refId": "B",
           "editorMode": "code",
           "range": true,
@@ -950,8 +962,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n1-110\",scenario!=\"calentamiento\"}",
-          "legendFormat": "110 órd/s",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n1-110\",scenario=\"f2\"})",
+          "legendFormat": "1 partición · 110 órd/s",
           "refId": "C",
           "editorMode": "code",
           "range": true,
@@ -962,8 +974,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n1-120\",scenario!=\"calentamiento\"}",
-          "legendFormat": "120 órd/s",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n1-120\",scenario=\"f2\"})",
+          "legendFormat": "1 partición · 120 órd/s",
           "refId": "D",
           "editorMode": "code",
           "range": true,
@@ -974,8 +986,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n2-180\",scenario!=\"calentamiento\"}",
-          "legendFormat": "180 órd/s",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n2-180\",scenario=\"f2\"})",
+          "legendFormat": "2 particiones · 180 órd/s",
           "refId": "E",
           "editorMode": "code",
           "range": true,
@@ -986,8 +998,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n2-200\",scenario!=\"calentamiento\"}",
-          "legendFormat": "200 órd/s",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n2-200\",scenario=\"f2\"})",
+          "legendFormat": "2 particiones · 200 órd/s",
           "refId": "F",
           "editorMode": "code",
           "range": true,
@@ -998,8 +1010,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n2-220\",scenario!=\"calentamiento\"}",
-          "legendFormat": "220 órd/s",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n2-220\",scenario=\"f2\"})",
+          "legendFormat": "2 particiones · 220 órd/s",
           "refId": "G",
           "editorMode": "code",
           "range": true,
@@ -1010,8 +1022,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n2-240\",scenario!=\"calentamiento\"}",
-          "legendFormat": "240 órd/s",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n2-240\",scenario=\"f2\"})",
+          "legendFormat": "2 particiones · 240 órd/s",
           "refId": "H",
           "editorMode": "code",
           "range": true,
@@ -1022,8 +1034,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n4-360\",scenario!=\"calentamiento\"}",
-          "legendFormat": "360 órd/s",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n4-360\",scenario=\"f2\"})",
+          "legendFormat": "4 particiones · 360 órd/s",
           "refId": "I",
           "editorMode": "code",
           "range": true,
@@ -1034,8 +1046,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n4-400\",scenario!=\"calentamiento\"}",
-          "legendFormat": "400 órd/s",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n4-400\",scenario=\"f2\"})",
+          "legendFormat": "4 particiones · 400 órd/s",
           "refId": "J",
           "editorMode": "code",
           "range": true,
@@ -1046,8 +1058,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n4-440\",scenario!=\"calentamiento\"}",
-          "legendFormat": "440 órd/s",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n4-440\",scenario=\"f2\"})",
+          "legendFormat": "4 particiones · 440 órd/s",
           "refId": "K",
           "editorMode": "code",
           "range": true,
@@ -1058,8 +1070,8 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "k6_grpc_req_duration_p95{corrida=\"q-n4-480\",scenario!=\"calentamiento\"}",
-          "legendFormat": "480 órd/s",
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n4-480\",scenario=\"f2\"})",
+          "legendFormat": "4 particiones · 480 órd/s",
           "refId": "L",
           "editorMode": "code",
           "range": true,

@@ -40,7 +40,12 @@ export BIZ_MICROS="${BIZ_MICROS:-0}"
 export SHARD_CPUS="${SHARD_CPUS:-0}"
 export SHARD_CPUSET="${SHARD_CPUSET:-}"
 export SHARD_MEM="${SHARD_MEM:-0}"
-OUT="$ROOT/load/k6/results/$STAMP-$MODE-S${BIZ_MICROS}us"
+# Directorio de resultados. RESULTS_DIR permite REANUDAR una corrida
+# interrumpida sobre el mismo directorio: las fases ya completas se omiten.
+# Es valido porque cada fase corre sobre una topologia recien levantada y no
+# comparte estado con las demas -- esa independencia ya era requisito de la
+# medicion, aqui solo se aprovecha.
+OUT="${RESULTS_DIR:-$ROOT/load/k6/results/$STAMP-$MODE-S${BIZ_MICROS}us}"
 mkdir -p "$OUT"
 
 SMOKE_FLAG=""
@@ -84,8 +89,24 @@ capture_shard_logs() {
   grep "ACUMULADO" "$OUT/$name-shard.log" 2>/dev/null | sed 's/^/  /' || true
 }
 
+# Una fase esta COMPLETA si dejo su resumen de k6 y el motor alcanzo a publicar
+# su ACUMULADO. Completa no es lo mismo que valida: una fase que incumplio su
+# umbral esta completa y no hay que repetirla, la decision ya se tomo.
+fase_completa() {
+  local n="$1"
+  [ -f "$OUT/$n.txt" ] || return 1
+  grep -qE "^[[:space:]]+grpc_req_duration" "$OUT/$n.txt" || return 1
+  grep -q ACUMULADO "$OUT/$n-shard.log" 2>/dev/null || return 1
+  return 0
+}
+
 run_phase() {
   local name="$1"; shift
+  if fase_completa "$name"; then
+    echo ""
+    echo "  Fase: $name — ya completa en el directorio, se omite"
+    return
+  fi
   echo ""
   echo "════════════════════════════════════════════════════"
   echo "  Fase: $name"
@@ -106,6 +127,9 @@ run_phase() {
 }
 
 echo "== E2E experimento E01 · modo=$MODE · BIZ_MICROS=${BIZ_MICROS}us · SHARD_CPUS=${SHARD_CPUS} · resultados en $OUT =="
+for f in f1 f2 f4 f4-explore-250 f4-explore-500 f4-explore-1000; do
+  fase_completa "$f" && echo "   reanudando: $f ya esta completa"
+done
 if [ "$BIZ_MICROS" = "0" ]; then
   echo "   AVISO: lógica de negocio APAGADA — se mide solo el patrón; el p95 de"
   echo "          esta corrida NO es el de un motor con lógica real."
@@ -115,7 +139,8 @@ fi
   echo "fecha=$(date -u +%Y-%m-%dT%H:%M:%SZ)";
   echo "k6=$(k6 version 2>/dev/null | head -1)"; echo "commit=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null)";
   echo "prometheus=${K6_PROMETHEUS_RW_SERVER_URL:-apagado}"; echo "tablero=http://localhost:3000";
-} > "$OUT/manifiesto.txt"
+} > "$OUT/manifiesto-$STAMP.txt"
+[ -f "$OUT/manifiesto.txt" ] || cp "$OUT/manifiesto-$STAMP.txt" "$OUT/manifiesto.txt"
 
 # 1. Construir imágenes una vez; cada fase levanta su propia topología limpia.
 $COMPOSE build
@@ -129,6 +154,11 @@ run_phase f4 -e PHASE=f4
 
 # 4. Exploración del techo de un shard (siempre corta)
 for peak in 250 500 1000; do
+  if fase_completa "f4-explore-$peak"; then
+    echo ""
+    echo "  Fase: f4-explore @ ${peak}/s — ya completa, se omite"
+    continue
+  fi
   echo ""
   echo "════════════════════════════════════════════════════"
   echo "  Fase: f4-explore @ ${peak}/s"

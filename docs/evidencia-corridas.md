@@ -3,7 +3,7 @@ title: Evidencia de corridas
 nav_order: 4
 ---
 
-# Lo que midieron las cuarenta corridas
+# Lo que midieron las cuarenta ejecuciones
 
 Las cuarenta corridas del [diseño del experimento](diseno-experimento.html) se
 lanzaron con un solo comando el **5 de septiembre de 2026**, todas sobre la
@@ -27,7 +27,7 @@ Lo que sigue desarrolla cada una de esas afirmaciones, de la más general a la
 más fina. Empieza por el veredicto, sigue con un recordatorio de cómo se leen
 las tablas, y luego recorre hipótesis por hipótesis.
 
-## El veredicto, primero
+## El primer resultado
 
 El contrato son dos requisitos de calidad críticos: **ASR-02**, la latencia en operación normal, y **ASR-03**, aguantar un pico de cinco veces esa carga durante media hora. Los dos piden lo mismo: que **95 de cada 100 órdenes** salgan en menos de 200 ms. Abajo, el resultado de cada apuesta de diseño contra ese criterio.
 
@@ -45,7 +45,7 @@ Todos esos percentiles cuelgan del mismo supuesto —8 ms por orden—. El dato 
 
 El prototipo no implementa la lógica de negocio real —validar, verificar riesgo y saldos, calcular comisiones, generar el trato—. Por eso el costo por orden entró como parámetro declarado, fijado en 8 ms, y se barrió alrededor. Cuando la lógica exista se mide su costo y se compara contra 12,4 ms. Esa afirmación es verificable desde hoy; los percentiles de arriba, solo bajo el supuesto de los 8 ms.
 
-## Cómo se leen estas cifras
+## Lectura de cifras
 
 Todas las tablas de abajo hablan de latencia con los mismos cuatro términos.
 Vale la pena fijarlos antes de seguir.

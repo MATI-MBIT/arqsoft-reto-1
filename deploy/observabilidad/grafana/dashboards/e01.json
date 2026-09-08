@@ -886,9 +886,33 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
+          "expr": "quantile_over_time(0.90, k6_grpc_req_duration_p95{corrida=\"q-n2-150\",scenario=\"f2\"}[$__range])",
+          "legendFormat": "150 órd/s",
+          "refId": "A",
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "quantile_over_time(0.90, k6_grpc_req_duration_p95{corrida=\"q-n2-165\",scenario=\"f2\"}[$__range])",
+          "legendFormat": "165 órd/s",
+          "refId": "B",
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
           "expr": "quantile_over_time(0.90, k6_grpc_req_duration_p95{corrida=\"q-n2-180\",scenario=\"f2\"}[$__range])",
           "legendFormat": "180 órd/s",
-          "refId": "A",
+          "refId": "C",
           "editorMode": "code",
           "range": false,
           "instant": true
@@ -900,7 +924,7 @@
           },
           "expr": "quantile_over_time(0.90, k6_grpc_req_duration_p95{corrida=\"q-n2-200\",scenario=\"f2\"}[$__range])",
           "legendFormat": "200 órd/s",
-          "refId": "B",
+          "refId": "D",
           "editorMode": "code",
           "range": false,
           "instant": true
@@ -912,7 +936,7 @@
           },
           "expr": "quantile_over_time(0.90, k6_grpc_req_duration_p95{corrida=\"q-n2-220\",scenario=\"f2\"}[$__range])",
           "legendFormat": "220 órd/s",
-          "refId": "C",
+          "refId": "E",
           "editorMode": "code",
           "range": false,
           "instant": true
@@ -924,7 +948,7 @@
           },
           "expr": "quantile_over_time(0.90, k6_grpc_req_duration_p95{corrida=\"q-n2-240\",scenario=\"f2\"}[$__range])",
           "legendFormat": "240 órd/s",
-          "refId": "D",
+          "refId": "F",
           "editorMode": "code",
           "range": false,
           "instant": true
@@ -1144,9 +1168,33 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n2-150\",scenario=\"f2\"})",
+          "legendFormat": "2 particiones · 150 órd/s",
+          "refId": "E",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
+          "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n2-165\",scenario=\"f2\"})",
+          "legendFormat": "2 particiones · 165 órd/s",
+          "refId": "F",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-e01"
+          },
           "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n2-180\",scenario=\"f2\"})",
           "legendFormat": "2 particiones · 180 órd/s",
-          "refId": "E",
+          "refId": "G",
           "editorMode": "code",
           "range": true,
           "instant": false
@@ -1158,7 +1206,7 @@
           },
           "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n2-200\",scenario=\"f2\"})",
           "legendFormat": "2 particiones · 200 órd/s",
-          "refId": "F",
+          "refId": "H",
           "editorMode": "code",
           "range": true,
           "instant": false
@@ -1170,7 +1218,7 @@
           },
           "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n2-220\",scenario=\"f2\"})",
           "legendFormat": "2 particiones · 220 órd/s",
-          "refId": "G",
+          "refId": "I",
           "editorMode": "code",
           "range": true,
           "instant": false
@@ -1182,7 +1230,7 @@
           },
           "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n2-240\",scenario=\"f2\"})",
           "legendFormat": "2 particiones · 240 órd/s",
-          "refId": "H",
+          "refId": "J",
           "editorMode": "code",
           "range": true,
           "instant": false
@@ -1194,7 +1242,7 @@
           },
           "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n4-360\",scenario=\"f2\"})",
           "legendFormat": "4 particiones · 360 órd/s",
-          "refId": "I",
+          "refId": "K",
           "editorMode": "code",
           "range": true,
           "instant": false
@@ -1206,7 +1254,7 @@
           },
           "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n4-400\",scenario=\"f2\"})",
           "legendFormat": "4 particiones · 400 órd/s",
-          "refId": "J",
+          "refId": "L",
           "editorMode": "code",
           "range": true,
           "instant": false
@@ -1218,7 +1266,7 @@
           },
           "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n4-440\",scenario=\"f2\"})",
           "legendFormat": "4 particiones · 440 órd/s",
-          "refId": "K",
+          "refId": "M",
           "editorMode": "code",
           "range": true,
           "instant": false
@@ -1230,7 +1278,7 @@
           },
           "expr": "max(k6_grpc_req_duration_p95{corrida=\"q-n4-480\",scenario=\"f2\"})",
           "legendFormat": "4 particiones · 480 órd/s",
-          "refId": "L",
+          "refId": "N",
           "editorMode": "code",
           "range": true,
           "instant": false
@@ -2048,7 +2096,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "sum(engine_orders_total{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"})",
+          "expr": "sum(engine_orders_total{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-150|q-n2-165|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"})",
           "legendFormat": "órdenes procesadas",
           "refId": "A",
           "editorMode": "code",
@@ -2138,7 +2186,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "max by (corrida, forma, journal) (max_over_time(engine_info{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
+          "expr": "max by (corrida, forma, journal) (max_over_time(engine_info{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-150|q-n2-165|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
           "legendFormat": "",
           "refId": "A",
           "editorMode": "code",
@@ -2151,7 +2199,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "max by (corrida) (max_over_time(engine_operating_point_micros{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
+          "expr": "max by (corrida) (max_over_time(engine_operating_point_micros{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-150|q-n2-165|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
           "legendFormat": "",
           "refId": "B",
           "editorMode": "code",
@@ -2164,7 +2212,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "max by (corrida) (max_over_time(engine_ceiling_orders_per_second{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
+          "expr": "max by (corrida) (max_over_time(engine_ceiling_orders_per_second{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-150|q-n2-165|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
           "legendFormat": "",
           "refId": "C",
           "editorMode": "code",
@@ -2177,7 +2225,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "max by (corrida) (max_over_time(engine_available_processors{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
+          "expr": "max by (corrida) (max_over_time(engine_available_processors{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-150|q-n2-165|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
           "legendFormat": "",
           "refId": "D",
           "editorMode": "code",
@@ -2190,7 +2238,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "max by (corrida) (max_over_time(engine_orders_total{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
+          "expr": "max by (corrida) (max_over_time(engine_orders_total{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-150|q-n2-165|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
           "legendFormat": "",
           "refId": "E",
           "editorMode": "code",
@@ -2203,7 +2251,7 @@
             "type": "prometheus",
             "uid": "prometheus-e01"
           },
-          "expr": "max by (corrida) (max_over_time(engine_orders_rejected_total{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
+          "expr": "max by (corrida) (max_over_time(engine_orders_rejected_total{corrida=~\"of-f1-n2|of-f2-n2|of-f4-n2|min-n1|min-n2|min-n4|q-n1-090|q-n1-100|q-n1-110|q-n1-120|q-n2-150|q-n2-165|q-n2-180|q-n2-200|q-n2-220|q-n2-240|q-n4-360|q-n4-400|q-n4-440|q-n4-480|cal-084|cal-100|cal-110|cal-120|bit-off|bit-paralelo|bit-serie|cpu-libre|cpu-2|cpu-1|cpu-05|pre-05|pre-10|pre-12|pre-13|pre-15|cpre-05|cpre-08|cpre-09|cpre-10|forma-lognormal|jfr-f2\"}[$__range]))",
           "legendFormat": "",
           "refId": "F",
           "editorMode": "code",
@@ -2309,125 +2357,133 @@
                         "text": "Quiebre · 1 partición · 120 órd/s",
                         "index": 9
                       },
+                      "q-n2-150": {
+                        "text": "Quiebre · 2 particiones · 150 órd/s",
+                        "index": 10
+                      },
+                      "q-n2-165": {
+                        "text": "Quiebre · 2 particiones · 165 órd/s",
+                        "index": 11
+                      },
                       "q-n2-180": {
                         "text": "Quiebre · 2 particiones · 180 órd/s",
-                        "index": 10
+                        "index": 12
                       },
                       "q-n2-200": {
                         "text": "Quiebre · 2 particiones · 200 órd/s",
-                        "index": 11
+                        "index": 13
                       },
                       "q-n2-220": {
                         "text": "Quiebre · 2 particiones · 220 órd/s",
-                        "index": 12
+                        "index": 14
                       },
                       "q-n2-240": {
                         "text": "Quiebre · 2 particiones · 240 órd/s",
-                        "index": 13
+                        "index": 15
                       },
                       "q-n4-360": {
                         "text": "Quiebre · 4 particiones · 360 órd/s",
-                        "index": 14
+                        "index": 16
                       },
                       "q-n4-400": {
                         "text": "Quiebre · 4 particiones · 400 órd/s",
-                        "index": 15
+                        "index": 17
                       },
                       "q-n4-440": {
                         "text": "Quiebre · 4 particiones · 440 órd/s",
-                        "index": 16
+                        "index": 18
                       },
                       "q-n4-480": {
                         "text": "Quiebre · 4 particiones · 480 órd/s",
-                        "index": 17
+                        "index": 19
                       },
                       "cal-084": {
                         "text": "Activo caliente · 84 órd/s en UN activo",
-                        "index": 18
+                        "index": 20
                       },
                       "cal-100": {
                         "text": "Activo caliente · 100 órd/s en UN activo",
-                        "index": 19
+                        "index": 21
                       },
                       "cal-110": {
                         "text": "Activo caliente · 110 órd/s en UN activo",
-                        "index": 20
+                        "index": 22
                       },
                       "cal-120": {
                         "text": "Activo caliente · 120 órd/s en UN activo",
-                        "index": 21
+                        "index": 23
                       },
                       "bit-off": {
                         "text": "Bitácora · apagada",
-                        "index": 22
+                        "index": 24
                       },
                       "bit-paralelo": {
                         "text": "Bitácora · en paralelo",
-                        "index": 23
+                        "index": 25
                       },
                       "bit-serie": {
                         "text": "Bitácora · en serie (camino crítico)",
-                        "index": 24
+                        "index": 26
                       },
                       "cpu-libre": {
                         "text": "CPU · sin límite",
-                        "index": 25
+                        "index": 27
                       },
                       "cpu-2": {
                         "text": "CPU · 2 núcleos",
-                        "index": 26
+                        "index": 28
                       },
                       "cpu-1": {
                         "text": "CPU · 1 núcleo",
-                        "index": 27
+                        "index": 29
                       },
                       "cpu-05": {
                         "text": "CPU · medio núcleo",
-                        "index": 28
+                        "index": 30
                       },
                       "pre-05": {
                         "text": "Presupuesto · orden de 5 ms",
-                        "index": 29
+                        "index": 31
                       },
                       "pre-10": {
                         "text": "Presupuesto · orden de 10 ms",
-                        "index": 30
+                        "index": 32
                       },
                       "pre-12": {
                         "text": "Presupuesto · orden de 12 ms",
-                        "index": 31
+                        "index": 33
                       },
                       "pre-13": {
                         "text": "Presupuesto · orden de 13 ms",
-                        "index": 32
+                        "index": 34
                       },
                       "pre-15": {
                         "text": "Presupuesto · orden de 15 ms",
-                        "index": 33
+                        "index": 35
                       },
                       "cpre-05": {
                         "text": "Presupuesto caliente · orden de 5 ms",
-                        "index": 34
+                        "index": 36
                       },
                       "cpre-08": {
                         "text": "Presupuesto caliente · orden de 8 ms",
-                        "index": 35
+                        "index": 37
                       },
                       "cpre-09": {
                         "text": "Presupuesto caliente · orden de 9 ms",
-                        "index": 36
+                        "index": 38
                       },
                       "cpre-10": {
                         "text": "Presupuesto caliente · orden de 10 ms",
-                        "index": 37
+                        "index": 39
                       },
                       "forma-lognormal": {
                         "text": "Forma · lognormal (cola sin tope)",
-                        "index": 38
+                        "index": 40
                       },
                       "jfr-f2": {
                         "text": "Atascos · grabación de la JVM",
-                        "index": 39
+                        "index": 41
                       }
                     }
                   }

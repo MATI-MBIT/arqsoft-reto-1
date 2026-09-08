@@ -26,6 +26,8 @@ h2-quiebre	q-n1-090	H2	f2	corto	1	BIZ_MICROS=8000;PEAK=90	p95<200	Punto de quieb
 h2-quiebre	q-n1-100	H2	f2	corto	1	BIZ_MICROS=8000;PEAK=100	p95<200	Punto de quiebre con 1 partición
 h2-quiebre	q-n1-110	H2	f2	corto	1	BIZ_MICROS=8000;PEAK=110	p95<200	Punto de quiebre con 1 partición
 h2-quiebre	q-n1-120	H2	f2	corto	1	BIZ_MICROS=8000;PEAK=120	p95<200	Punto de quiebre con 1 partición
+h2-quiebre	q-n2-150	H2	f2	corto	2	BIZ_MICROS=8000;PEAK=150	p95<200	¿El quiebre se duplica al duplicar particiones?
+h2-quiebre	q-n2-165	H2	f2	corto	2	BIZ_MICROS=8000;PEAK=165	p95<200	¿El quiebre se duplica al duplicar particiones?
 h2-quiebre	q-n2-180	H2	f2	corto	2	BIZ_MICROS=8000;PEAK=180	p95<200	¿El quiebre se duplica al duplicar particiones?
 h2-quiebre	q-n2-200	H2	f2	corto	2	BIZ_MICROS=8000;PEAK=200	p95<200	¿El quiebre se duplica al duplicar particiones?
 h2-quiebre	q-n2-220	H2	f2	corto	2	BIZ_MICROS=8000;PEAK=220	p95<200	¿El quiebre se duplica al duplicar particiones?
